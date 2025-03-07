@@ -1,0 +1,1106 @@
+---
+title: "Untitled"
+author: "Andrea Corral Lou"
+date: "2023-10-27"
+output: html_document
+---
+
+(PAQUETES NECESARIOS)
+
+```{r}
+
+library(vegan)
+library(permute)
+library(lattice)
+library(phyloseq)
+library(here)
+library(tidyr)
+library(here)
+library(tidyverse)
+library(vegan)
+library(reshape2)
+library(readr)
+library(dplyr)
+library(Biostrings)
+library(phylotools)
+library(BiocManager)
+library(paletteer)
+library(tidyverse)
+library(insect)
+library(taxonomizr)
+library(here)
+library(ape)
+library(agricolae)
+library(Hmisc)
+library(remotes)
+library(sos)
+library(Hmisc)
+library(microbiome)  
+
+
+```
+
+(1) **Voy a crear los tres elementos necesarios para poder usar el formato de phyloseq. Para ello necesito tabla de ASVs, taxa y metadata**
+
+```{r}
+
+# 1. ASVs
+
+ASV.table <- read.csv(here("Outputs/good_output/New_70_90/Supplementary_Table_2_OTU_table.csv"))
+
+#Voy a hacer que cada especies se un OTU, porque sino estoy sobreestimando por la diversidad intraespecifica
+
+OTU <- ASV.table %>% 
+  distinct(assign) %>% 
+  mutate(numero = row_number()) %>% 
+  mutate(OTU = "OTU") %>% 
+  mutate(OTU = paste(OTU,numero, sep="")) %>% 
+  select(assign, OTU)
+
+ASV.table <- full_join(ASV.table,OTU) %>%
+    mutate(species = gsub("\\(species\\)", "", assign),
+         species = gsub("\\(genus\\)", "sp.", species),
+         species = gsub("\\(family\\)", "sp.", species),
+         species = gsub("\\(order\\)", "sp.", species)) 
+
+#ASV <- ASV.table %>% 
+#  group_by(Tube, OTU) %>% 
+#  dplyr::summarize(nReads=sum(nReads)) %>% 
+#  dplyr::rename(Sample = Tube) %>% 
+#  pivot_wider(names_from = Sample, values_from = nReads, values_fill = 0) %>% 
+#  as.matrix() 
+  
+#1.1.Vamos a hacer una trasofrmacion de los datos para apalear el sesgo de numero de lecturas y que resulte comparable cuando hacemos beta-diversity
+
+#ASV.table <- read.csv(here("Outputs/good_output/New_70_90/ASV_table_samples_metazoa_without_pos_host_modified.csv"))
+
+
+```
+
+PAIRWISE
+
+```{r}
+
+a <- ASV.table %>% 
+  mutate(adonis = paste(Region, V_o_P, sep="_")) %>% 
+  filter(adonis == "Ri_V" | adonis == "Urr_V") %>% 
+  select(-adonis)
+b <- ASV.table %>% 
+  mutate(adonis = paste(Region, V_o_P, sep="_")) %>% 
+  filter(adonis == "Ri_V" | adonis == "Ri_P") %>% 
+  select(-adonis)
+c <- ASV.table %>% 
+  mutate(adonis = paste(Region, V_o_P, sep="_")) %>% 
+  filter(adonis == "Ri_V" | adonis == "Urr_P") %>% 
+  select(-adonis)
+d <- ASV.table %>% 
+  mutate(adonis = paste(Region, V_o_P, sep="_")) %>% 
+  filter(adonis == "Urr_V" | adonis == "Ri_P") %>% 
+  select(-adonis)
+e <- ASV.table %>% 
+  mutate(adonis = paste(Region, V_o_P, sep="_")) %>% 
+  filter(adonis == "Urr_V" | adonis == "Urr_P") %>% 
+  select(-adonis)
+f <- ASV.table %>% 
+  mutate(adonis = paste(Region, V_o_P, sep="_")) %>% 
+  filter(adonis == "Ri_P" | adonis == "Urr_P") %>% 
+  select(-adonis)
+
+
+ASV <- e %>% #He cambiado Hash por OTU porque para la diversidad son especies no secuencias difernetes
+  group_by(Tube, OTU) %>% 
+  dplyr::summarize(nReads=sum(nReads)) %>%
+  ungroup() %>% 
+  select(Tube,OTU,nReads) %>% 
+  dplyr::rename(Sample = Tube) %>%
+  group_by(Sample) %>% 
+  mutate(Total_Sample = sum(nReads)) %>%
+  ungroup() %>% 
+  mutate(Proportion = (nReads*100)/Total_Sample) %>% 
+  select(Sample,OTU,Proportion) %>%
+  pivot_wider(names_from = Sample, values_from = Proportion, values_fill = 0) %>% 
+  as.matrix() 
+
+ASV.table <- e
+
+```
+
+TRANSFORMACIONES
+
+```{r}
+
+ASV <- ASV.table %>% #He cambiado Hash por OTU porque para la diversidad son especies no secuencias difernetes
+  group_by(Tube, OTU) %>% 
+  dplyr::summarize(nReads=sum(nReads)) %>%
+  ungroup() %>% 
+  select(Tube,OTU,nReads) %>% 
+  dplyr::rename(Sample = Tube) %>%
+  pivot_wider(names_from = Sample, values_from = nReads, values_fill = 0) %>% 
+  as.matrix() 
+
+
+##################################################################################################################
+# TRANSFORMACION 1. TENIENDO EN CUENTA ABUNDANCIAS RELATIVAS (TODAS SOBRE 100)
+##################################################################################################################
+
+ASV <- ASV.table %>% #He cambiado Hash por OTU porque para la diversidad son especies no secuencias difernetes
+  group_by(Tube, OTU) %>% 
+  dplyr::summarize(nReads=sum(nReads)) %>%
+  ungroup() %>% 
+  select(Tube,OTU,nReads) %>% 
+  dplyr::rename(Sample = Tube) %>%
+  group_by(Sample) %>% 
+  mutate(Total_Sample = sum(nReads)) %>%
+  ungroup() %>% 
+  mutate(Proportion = (nReads*100)/Total_Sample) %>% 
+  select(Sample,OTU,Proportion) %>%
+  pivot_wider(names_from = Sample, values_from = Proportion, values_fill = 0) %>% 
+  as.matrix() 
+
+##################################################################################################################
+# TRANSFORMACION 2. TENIENDO EN CUENTA SOLO PRESENCIAS Y AUSENCIAS (0-1) PARA JACCARD
+##################################################################################################################
+
+ASV <- ASV.table %>% #He cambiado Hash por OTU porque para la diversidad son especies no secuencias difernetes
+  group_by(Tube, OTU) %>% 
+  dplyr::summarize(nReads=sum(nReads)) %>%
+  mutate(across(nReads, ~if_else(. > 0, 1, 0))) %>% 
+  dplyr::rename(Sample = Tube) %>%
+  pivot_wider(names_from = Sample, values_from = nReads, values_fill = 0) %>%
+  as.matrix() 
+
+##################################################################################################################
+# TRANSFORMACION 3. TENIENDO EN CUENTA LA PROP SEGUN EL NUMERO MAXIMO DE LECTURAS OBTENIDAS PARA CADA OTU
+##################################################################################################################
+
+ASV <- ASV.table %>% #He cambiado Hash por OTU porque para la diversidad son especies no secuencias difernetes
+  group_by(Tube, OTU) %>% 
+  dplyr::summarize(nReads=sum(nReads)) %>% 
+  dplyr::rename(Sample = Tube) %>%
+  group_by(Sample) %>% 
+  mutate(Total_Sample = sum(nReads)) %>% 
+  mutate(Percentage = (nReads*100)/Total_Sample) %>% 
+  ungroup() %>% 
+  group_by(OTU) %>% 
+  mutate(max_number= max(Percentage)) %>% 
+  ungroup() %>% 
+  mutate(nReads_transf=(Percentage/max_number)) %>% 
+  select(Sample,OTU,nReads_transf) %>%
+  mutate(nReads_transf=(nReads_transf*100)) %>% 
+  pivot_wider(names_from = Sample, values_from = nReads_transf, values_fill = 0) %>% 
+  as.matrix() 
+
+##################################################################################################################
+# TRANSFORMACION 4. RAIZ CUADRADA DE LA PROPORCION
+##################################################################################################################
+
+ASV <- ASV.table %>% #He cambiado Hash por OTU porque para la diversidad son especies no secuencias difernetes
+  group_by(Tube, OTU) %>% 
+  dplyr::summarize(nReads=sum(nReads)) %>% 
+  dplyr::rename(Sample = Tube) %>%
+  group_by(Sample) %>% 
+  mutate(Total_Sample = sum(nReads)) %>% 
+  mutate(Proportion = (nReads*100)/Total_Sample) %>% 
+  ungroup() %>% 
+  mutate(Raiz = sqrt(Proportion)) %>% 
+  select(Sample,OTU,Raiz) %>%
+  pivot_wider(names_from = Sample, values_from = Raiz, values_fill = 0) %>% 
+  as.matrix() 
+
+##################################################################################################################
+# TRANSFORMACION 5. log-2
+##################################################################################################################
+
+ASV <- ASV.table %>% #He cambiado Hash por OTU porque para la diversidad son especies no secuencias difernetes
+  group_by(Tube, OTU) %>% 
+  dplyr::summarize(nReads=sum(nReads)) %>% 
+  dplyr::rename(Sample = Tube) %>%
+  group_by(Sample) %>% 
+  mutate(Total_Sample = sum(nReads)) %>% 
+  mutate(Proportion = (nReads*100)/Total_Sample) %>% 
+  ungroup() %>% 
+  mutate(Log2 = log(Proportion, base = 2)) %>% 
+  select(Sample,OTU,Log2) %>%
+  pivot_wider(names_from = Sample, values_from = Log2, values_fill = 0) %>% 
+  as.matrix() 
+
+
+```
+
+CONTINUAMOS
+
+```{r}
+#ASV <- ASV.table %>%
+#  select(Sample, Hash, nReads) %>%
+#  pivot_wider(names_from = Sample, values_from = nReads, values_fill = 0) %>% 
+#  as.matrix() 
+
+rownames(ASV) <- ASV[, "OTU"]
+ASV = ASV[, -1]
+class(ASV) <- "numeric"#"integer"
+                              
+ASV <- otu_table(ASV, taxa_are_rows = TRUE)
+
+# 2. TAXA
+
+TAXA <- ASV.table %>%
+  select(OTU,kingdom,phylum,class,order,family,genus,species) %>% 
+  unique() %>% 
+  as.matrix() 
+
+rownames(TAXA) <- TAXA[, "OTU"]
+TAXA = TAXA[, -1]
+
+#COMBINAMOS ASVs Y TAXA
+
+ASV <- otu_table(ASV, taxa_are_rows = TRUE)
+TAXA <- tax_table(TAXA)
+physeq = phyloseq(ASV, TAXA)
+
+
+# 3. METADATA
+
+METADATA <- ASV.table %>% 
+  select(Tube,Station,Biol.rep,V_o_P,Region) %>%
+  #mutate(Zone = paste (Region,V_o_P, sep="_")) %>% 
+  dplyr::rename(Sample = Tube) %>% 
+  unique
+rownames(METADATA) <- METADATA[, "Sample"]
+METADATA = METADATA[, -1] 
+
+#METADATA <- ASV.table %>% 
+#  select(Sample,Tube,Station,Biol.rep,rep,V_o_P,Region) %>% 
+#  unique
+#rownames(METADATA) <- METADATA[, "Sample"]
+#METADATA = METADATA[, -1] 
+
+sampledata = sample_data(data.frame(
+  Station = METADATA$Station,
+  Biol.rep = METADATA$Biol.rep,
+  V_o_P = METADATA$V_o_P,
+  Region = METADATA$Region,
+  row.names=sample_names(physeq),
+  stringsAsFactors=FALSE
+))
+
+
+#ADONIS
+
+#METADATA <- ASV.table %>% 
+#  semi_join(a, by="Sample") %>% 
+#  select(Tube,Station,Biol.rep,V_o_P,Region) %>% 
+#  dplyr::rename(Sample = Tube) %>% 
+#  unique
+#rownames(METADATA) <- METADATA[, "Sample"]
+#METADATA = METADATA[, -1] 
+
+#METADATA <- ASV.table %>% 
+#  select(Sample,Tube,Station,Biol.rep,rep,V_o_P,Region) %>% 
+#  unique
+#rownames(METADATA) <- METADATA[, "Sample"]
+#METADATA = METADATA[, -1] 
+
+sampledata = sample_data(data.frame(
+  Station = METADATA$Station,
+  Biol.rep = METADATA$Biol.rep,
+  V_o_P = METADATA$V_o_P,
+  Region = METADATA$Region,
+  row.names=sample_names(physeq),
+  stringsAsFactors=FALSE
+))
+
+
+#sampledata = sample_data(data.frame(
+#  Tube = METADATA$Tube,
+#  Station = METADATA$Station,
+#  Biol.rep = METADATA$Biol.rep,
+#  rep = METADATA$rep,
+#  V_o_P = METADATA$V_o_P,
+#  Region = METADATA$Region,
+#  row.names=sample_names(physeq),
+#  stringsAsFactors=FALSE
+#))
+
+#COMBINACION DE LOS TRES ELEMENTOS EN UN OBJETO LLAMADO PHYLOSEQ, TAMBIEN HEMOS AÑADIDO UN ARBOL (NO SE PARA QUE SIRVE)
+
+
+physeq = merge_phyloseq(physeq, sampledata)
+
+random_tree = rtree(ntaxa(physeq), rooted=TRUE, tip.label=taxa_names(physeq))
+
+physeq = merge_phyloseq(physeq, random_tree)
+
+plot_bar(physeq, fill = "phylum")+
+geom_bar(aes(color=phylum, fill=phylum), stat="identity", position="stack") #con esto quitamos el contorno de las barras
+
+plot_bar(physeq, x = "Station", y = "Abundance", fill="phylum") +
+geom_bar(aes(color=phylum, fill=phylum), stat="identity", position="stack") #con esto quitamos el contorno de las barras
+
+```
+
+PERMANOVA Y BETADISPER
+
+```{r}
+
+#PERMANOVA
+
+#Generate distance matrix
+
+clr_dist_matrix <- phyloseq::distance(physeq, method = "jaccard") 
+sampledf <- data.frame(sample_data(physeq)) %>% 
+  mutate(RS = paste(V_o_P, Region, sep ="_"))
+vegan::adonis2(clr_dist_matrix ~ V_o_P, data = sampledf)
+beta <- betadisper(clr_dist_matrix, sampledf$V_o_P)
+permutest(beta)
+
+clr_dist_matrix <- phyloseq::distance(physeq, method = "jaccard") 
+sampledf <- data.frame(sample_data(physeq)) %>% 
+  mutate(RS = paste(V_o_P, Region, sep ="_"))
+vegan::adonis2(clr_dist_matrix ~ Region*V_o_P, data = sampledf)
+beta <- betadisper(clr_dist_matrix, sampledf$RS)
+permutest(beta)
+
+```
+
+PLOT
+
+```{r}
+
+beta_diversity <- phyloseq::distance(physeq, method = "jaccard") 
+beta_pca <- cmdscale(beta_diversity)
+plot(beta_diversity, pch = 20)
+beta_pcoa <- ordinate(physeq, method = "PCoA", distance = "beta_diversity")
+colors <- c("#7fc97f", "#beaed4")
+
+ordination_data <- as.data.frame(beta_pcoa$vectors)
+sample_data_df <- data.frame(sample_data(physeq))
+ordination_data <- cbind(ordination_data, sample_data_df) %>% 
+  mutate(RS = paste0(Region, V_o_P, sep="_"))
+centroids <- ordination_data %>%
+  group_by(Region) %>%
+  dplyr::summarize(PC1 = mean(Axis.1), PC2 = mean(Axis.2))
+
+
+#PARA SABER QUE VALOR TIENEN LOS PCA
+plot_ordination(physeq, beta_pcoa, color = "V_o_P", shape ="Region" ) +
+  geom_text(aes(label = Station), hjust = 1, vjust = 1) +
+  geom_point(size = 4) +
+  scale_color_manual(values = colors)+
+  stat_ellipse()
+
+
+plot_ordination <- ggplot(ordination_data, aes(x = Axis.1, y = Axis.2, color = Region)) +
+  geom_point(size = 4) +
+  geom_text(aes(label = Station), hjust = 1, vjust = 1) +
+  geom_point(data = centroids, aes(x = PC1, y = PC2, color = Region), size = 5, stroke = 2, alpha = 0.7, shape = 18, color = "black") +
+  geom_text(data = centroids, aes(x = PC1, y = PC2, label = paste(Region)), vjust = -1, size = 4) +
+  scale_color_manual(values = colors) +
+  stat_ellipse() +
+  labs(title = "Análisis de PCoA con Centroides", x = "PCoA 1", y = "PCoA 2")
+
+
+
+ggsave(filename = here("Figures/f_jaccard.pdf"), plot = plot_ordination, width = 7, height = 5, dpi = 300)
+
+```
+
+
+
+(2) **Vamos a calcular la diversidad ALFA y vamos a ver si existen diferencias significativas entre diferentes categorias**
+
+```{r}
+
+
+rich <- estimate_richness(physeq)
+
+
+#Hay varios indices difernetes con los que puedes calcular la alfa diversity ("Observed", "Chao1", "ACE", "Shannon", "Simpson", "InvSimpson", "Fisher")
+
+alpha_diversity <- estimate_richness(physeq, measures = "Shannon")
+hist(alpha_diversity$Shannon)
+
+
+#Voy a unir esta tabla con la de metadata para poder ver diferentes estadisticos
+
+
+result <- cbind(sample_data(physeq), alpha_diversity) %>% 
+    mutate(loc = case_when(
+    str_detect(Station, "Ri1") ~ "Ri_1",
+    str_detect(Station, "Ri2") ~ "Ri_2",
+    str_detect(Station, "Urr1") ~ "Urr_1",
+    str_detect(Station, "Urr2") ~ "Urr_2",
+    TRUE ~ Station
+  )) %>% 
+  mutate(Station=factor(Station,levels = c("Ri1_P","Ri2_P","Ri1_V","Ri2_V","Urr1_P","Urr2_P","Urr1_V","Urr2_V"))) 
+
+alpha.diversity <- ggplot(result, aes(x = Station, y = Shannon)) + 
+  geom_boxplot()
+
+ggsave(here("Figures/alpha_diversity_2.pdf"), plot = alpha.diversity, width = 7, height = 5)
+
+#Voy a ver si hay diferencias significativas entre varias cosas:
+
+
+result <- result %>% 
+  mutate(loc_season = paste(loc,V_o_P, sep="_"))
+
+shapiro.test(result$Shannon) #normalidad de los datos. Si el valor p<0.05, los datos no siguen una distribución normal
+bartlett.test(result$Shannon,result$loc_season) #homogeniedad de la varianza. Si el valor p<0.05, las varianzas entre los grupos son significativamente diferentes. 
+
+#Una unica variable con un factor de mas de de dos categorias
+#anova_result_loc.season <- aov(Shannon ~ loc_season, result)
+#summary(anova_result_loc.season)
+#TukeyHSD(anova_result_loc.season)
+#pairwise.t.test(result$Shannon, result$loc_season, p.adjust.method = "holm")
+#
+#Una unica variable con dos factores
+anova_result_multiple <- aov(Shannon ~ Region*V_o_P, result)
+summary(anova_result_multiple)
+stats::TukeyHSD(anova_result_multiple)
+pairwise.t.test(result$Shannon, result$loc_season, p.adjust.method = "holm")
+
+
+result_summary <- result %>% 
+  group_by(Region,V_o_P) %>% 
+  summarise(media=mean(Shannon),
+            desviacion=sd(Shannon)
+            )
+
+write.csv(result_summary, here("Tables/shannon_2.csv"), row.names = F)
+
+
+#group_data <- tukey_result$groups[order(rownames(tukey_result$groups)),]
+#ggplot(result, aes(x = Station, y = Shannon)) +
+#  geom_text(data = data.frame(),
+#            aes(x = rownames(group_data), y = max(result$Shannon) + 1, label = group_data$groups),
+#            col = 'black',
+#            size = 10) +
+#  geom_boxplot() +
+#  ggtitle("Alpha diversity") +
+#  xlab("Site") +
+#  ylab("Alpha diversity index")
+
+#plot_richness(physeq, color = "Region", x = "Station", measures = c("Observed", "Chao1", "Shannon")) + geom_boxplot(aes(fill = Station), alpha=.7) + scale_color_manual(values = c('#8dd3c7','#ffffb3','#bebada','#fb8072','#80b1d3','#fdb462','#b3de69','#fccde5')) + scale_fill_manual(values = c('#8dd3c7','#ffffb3','#bebada','#fb8072','#80b1d3','#fdb462','#b3de69','#fccde5'))
+
+
+#alpha_pd <- estimate_richness(physeq, measures = "Shannon")
+#data <- cbind(sample_data(physeq), alpha_pd) 
+#psd5.anova <- aov(Shannon ~ Region, data)
+
+```
+
+(3) **Vamos a calcular la diversidad BETA y vamos a hacer una PCA**
+
+```{r}
+
+beta_diversity <- phyloseq::distance(physeq, method = "jaccard") 
+beta_pca <- cmdscale(beta_diversity)
+plot(beta_diversity, pch = 20)
+beta_pcoa <- ordinate(physeq, method = "PCoA", distance = "beta_diversity")
+colors <- c("#7fc97f", "#beaed4")
+
+ordination_data <- as.data.frame(beta_pcoa$vectors)
+sample_data_df <- data.frame(sample_data(physeq))
+ordination_data <- cbind(ordination_data, sample_data_df) 
+ordination_data <-ordination_data %>% 
+  mutate(RS = paste(Region, V_o_P, sep="_"))
+centroids <- ordination_data %>%
+  group_by(RS) %>%
+  dplyr::summarize(PC1 = mean(Axis.1), PC2 = mean(Axis.2))
+
+
+#PARA SABER QUE VALOR TIENEN LOS PCA
+plot_ordination(physeq, beta_pcoa, color = "V_o_P", shape ="Region" ) +
+  geom_text(aes(label = Station), hjust = 1, vjust = 1) +
+  geom_point(size = 4) +
+  scale_color_manual(values = colors)+
+  stat_ellipse()
+
+
+plot_ordination <- ggplot(ordination_data, aes(x = Axis.1, y = Axis.2, color = RS)) +
+  geom_point(size = 4) +
+  geom_text(aes(label = Station), hjust = 1, vjust = 1) +
+  geom_point(data = centroids, aes(x = PC1, y = PC2, color = RS), size = 3, stroke = 2, alpha = 0.7, shape = 18, color = "black") +
+  geom_text(data = centroids, aes(x = PC1, y = PC2, label = paste(RS)), vjust = -1, size = 4) +
+  #scale_color_manual(values = colors) +
+  stat_ellipse() +
+  labs(title = "Análisis de PCoA con Centroides", x = "PCoA 1", y = "PCoA 2") 
+
+
+#plot_scree(beta_pcoa, "Scree plot for Global Patterns, UniFrac/PCoA")
+
+ggsave(filename = here("Figures/all_jaccard.pdf"), plot = plot_ordination, width = 7, height = 5, dpi = 300)
+
+```
+
+
+
+
+```{r}
+
+
+beta_diversity <- phyloseq::distance(physeq, method = "bray") 
+beta_pca <- cmdscale(beta_diversity)
+plot(beta_diversity, pch = 20)
+beta_pcoa <- ordinate(physeq, method = "PCoA", distance = "beta_diversity")
+colors <- c("#7fc97f", "#beaed4")
+
+
+plot.ordination <- plot_ordination(physeq, beta_pcoa, color = "V_o_P", shape ="Region" ) +
+  geom_text(aes(label = Station), hjust = 1, vjust = 1) +
+  geom_point(size = 4) +
+  scale_color_manual(values = colors)+
+  stat_ellipse()
+
+ordination_data <- as.data.frame(beta_pcoa$vectors)
+sample_data_df <- data.frame(sample_data(physeq))
+ordination_data <- cbind(ordination_data, sample_data_df)
+centroids <- ordination_data %>%
+  group_by(V_o_P) %>%
+  dplyr::summarize(PC1 = mean(Axis.1), PC2 = mean(Axis.2))
+
+plot_ordination + 
+  geom_point(data = centroids, aes(x = PC1, y = PC2, color = V_o_P, shape = Region), size = 5, stroke = 2) +
+  geom_text(data = centroids, aes(x = PC1, y = PC2, label = paste(V_o_P, Region)), vjust = -1)
+
+
+plot_ordination <- ggplot(ordination_data, aes(x = Axis.1, y = Axis.2, color = V_o_P)) +
+  geom_point(size = 4) +
+  geom_text(aes(label = Station), hjust = 1, vjust = 1) +
+  geom_point(data = centroids, aes(x = PC1, y = PC2, color = V_o_P), size = 5, stroke = 2, alpha = 0.7, shape = 2, color = "black") +
+  geom_text(data = centroids, aes(x = PC1, y = PC2, label = paste(V_o_P)), vjust = -1, size = 4) +
+  scale_color_manual(values = colors) +
+  stat_ellipse() +
+  labs(title = "Análisis de PCoA con Centroides", x = "PCoA 1", y = "PCoA 2") +
+  theme_minimal()
+
+
+plot_scree(beta_pcoa, "Scree plot for Global Patterns, UniFrac/PCoA")
+
+ggsave(filename = here("Figures/JACCARD_PCOA.pdf"), plot = plot.ordination, width = 7, height = 5, dpi = 300)
+
+
+
+
+
+
+plot_heatmap(physeq, method = "NMDS", distance = "bray") #Un heatmap simple
+
+
+
+beta_diversity <- phyloseq::distance(physeq, method = "bray") 
+
+#print(beta_diversity)
+beta_pca <- cmdscale(beta_diversity)
+plot(beta_pca, pch = 20)
+beta_pcoa <- ordinate(physeq, method = "PCoA", distance = "beta_diversity")
+colors <- c("#7fc97f", "#beaed4")
+plot.ordination <- plot_ordination(physeq, beta_pcoa, color = "V_o_P", shape ="Region" ) +
+  geom_text(aes(label = Station), hjust = 1, vjust = 1) +
+  geom_point(size = 4) +
+  scale_color_manual(values = colors)
+
+ggsave(filename = here("Figures/a_bray_PCOA.pdf"), plot = plot.ordination, width = 7, height = 5, dpi = 300)
+
+
+
+
+
+#Contribucion a la varianza de cada eje
+
+ord_clr <- phyloseq::ordinate(physeq, "NMDS")
+phyloseq::plot_scree(ord_clr) + 
+  geom_bar(stat="identity", fill = "blue") +
+  labs(x = "\nAxis", y = "Proportion of Variance\n")
+head(ord_clr$CA$eig)
+sapply(ord_clr$CA$eig[1:5], function(x) x / sum(ord_clr$CA$eig))
+
+
+
+
+
+cap_result <- phyloseq::capscale(beta_pcoa ~ Region + V_o_P, physeq)
+
+
+ggsave(filename = here("Figures/jaccard_PCoA_pre_aus.pdf"), plot = plot.ordination, width = 7, height = 5, dpi = 300)
+
+
+#PRUEBAAA
+
+beta_diversity <- phyloseq::distance(physeq, method = "bray") 
+vegan::adonis(beta_diversity ~ phyloseq::sample_data(physeq)$Zone)
+dispr <- vegan::betadisper(beta_diversity, phyloseq::sample_data(physeq)$Zone)
+dispr
+plot(dispr, main = "Ordination Centroids and Dispersion Labeled: Aitchison Distance", sub = "")
+
+  
+```
+
+**SIMPER: Queremos ver que especies contribuyen mas a que las muestras se separen**
+
+```{r}
+
+
+
+#######################################################################################
+#
+# NMDS PLOT (bray-curtis)
+#
+#######################################################################################
+
+
+MM.mds <- metaMDS(MM_spp, distance = "bray", autotransform = FALSE) # Perform nmds
+MM.envfit <- envfit(MM.mds, MM_env, permutations = 999) # Fit environmental vectors
+MM.sppfit <- envfit(MM.mds, MM_spp, permutations = 999) # Fit species vectors
+MM.mds  # Stress value is less than 0.2, which is good.
+
+
+# Save the results from the nmds and group the data by environmental variables
+site.scrs <- as.data.frame(scores(MM.mds, display = "sites"))  
+
+# make depth a grouping variable and save to dataframe
+site.scrs <- cbind(site.scrs, Season = MM_env$Season) 
+
+# save NMDS results into dataframe
+site.scrs <- cbind(site.scrs, Locality = MM_env$Locality)  
+
+# make temperature a grouping variable and save to dataframe
+head(site.scrs)  # View the dataframe
+
+
+
+spp.scrs <- as.data.frame(scores(MM.sppfit, display = "vectors"))  # Save species data from nmds to dataframe
+spp.scrs <- cbind(spp.scrs, Species = rownames(spp.scrs))  # Save species values into dataframe
+spp.scrs <- cbind(spp.scrs, pval = MM.sppfit$vectors$pvals) # Add species names to dataframe
+sig.spp.scrs <- subset(spp.scrs, pval<=0.05) # Add p values to dataframe so you can select species which are significant
+head(spp.scrs)  # Show only significant species (using 0.05 as cutoff)
+
+
+
+env.scores.MM <- as.data.frame(scores(MM.envfit, display = "vectors"))  # Save environmental variables
+
+# Extract nmds scores of all environmental variables from envifit dataframe
+env.scores.MM <- cbind(env.scores.MM, env.variables = rownames(env.scores.MM))  
+
+# Name them 
+env.scores.MM <- cbind(env.scores.MM, pval = MM.envfit$vectors$pvals) 
+
+# Add p values to dataframe
+sig.env.scrs <- subset(env.scores.barents, pval<=0.05) 
+
+# Show only significant variables (using 0.05 as cutoff)
+head(env.scores.barents)  # View dataframe
+
+
+
+
+
+
+
+
+
+
+
+
+
+simp_season <- simper(mat_MM_spp, MM_env$Season)
+simp_season
+summary(simp_season, ordered = TRUE, digits = 3)
+
+simp_locality <- simper(mat_MM_spp, MM_env$Locality)
+simp_locality
+summary(simp_locality, ordered = TRUE, digits = 3)
+
+simp_both <- simper(mat_MM_spp, MM_env$Loc_Sea)
+simp_both
+summary(simp_both, ordered = TRUE, digits = 3)
+
+
+#EXAMPLE OF SIMPER
+
+
+
+barents <- read.csv(here("barents_data.csv"))
+barents_spp <- barents %>% select(Re_hi:Tr_spp)
+barents_env_raw <- barents %>% select(ID_No:Temperature)
+barents_env <- barents_env_raw %>% 
+  mutate(Depth_cat=cut(Depth, breaks=c(-Inf, 250, 350, Inf), labels=c("shallow","mid","deep"))) %>%
+  mutate(Temp_cat=cut(Temperature, breaks=c(-Inf, 1, 2, 3, Inf), labels=c("vc","c","m","w")))
+
+
+mat_bar_spp <- as.matrix(barents_spp)
+bar_depth <- anosim(mat_bar_spp, barents_env_raw$Depth, distance = "bray", permutations = 9999)
+
+bar_depth 
+
+
+bar_temp <- anosim(mat_bar_spp, barents_env_raw$Temperature, distance = "bray", permutations = 9999)
+
+bar_temp
+
+simp_depth <- simper(mat_bar_spp, barents_env$Depth_cat)
+simp_depth
+summary(simp_depth, ordered = TRUE, digits = 3)
+
+simp_temp <- simper(mat_bar_spp, barents_env$Temp_cat)
+simp_temp
+summary(simp_temp, ordered = TRUE, digits = 3)
+
+
+
+
+barents <- read.csv("barents_data.csv")
+# Separate environmental data and species data
+barents_spp <- barents %>% select(Re_hi:Tr_spp)
+
+barents_env_raw <- barents %>% select(ID_No:Temperature)
+
+
+# Create ordinal groups for depth and temperature variables
+barents_env <- barents_env_raw %>% 
+  mutate(Depth_cat=cut(Depth, breaks=c(-Inf, 250, 350, Inf), labels=c("shallow","mid","deep"))) %>%
+  mutate(Temp_cat=cut(Temperature, breaks=c(-Inf, 1, 2, 3, Inf), labels=c("vc","c","m","w")))
+
+# Separate environmental data and species data
+barents_spp <- barents %>% select(Re_hi:Tr_spp)
+
+barents_env_raw <- barents %>% select(ID_No:Temperature)
+
+
+# Create ordinal groups for depth and temperature variables
+barents_env <- barents_env_raw %>% 
+  mutate(Depth_cat=cut(Depth, breaks=c(-Inf, 250, 350, Inf), labels=c("shallow","mid","deep"))) %>%
+  mutate(Temp_cat=cut(Temperature, breaks=c(-Inf, 1, 2, 3, Inf), labels=c("vc","c","m","w")))
+
+# Perform nmds and fit environmental and species vectors
+barents.mds <- metaMDS(barents_spp, distance = "bray", autotransform = FALSE)
+
+
+# Fit environmental vectors
+barents.envfit <- envfit(barents.mds, barents_env, permutations = 999) 
+
+# Fit species vectors
+barents.sppfit <- envfit(barents.mds, barents_spp, permutations = 999) 
+
+barents.mds
+
+# Save the results from the nmds and group the data by environmental variables
+site.scrs <- as.data.frame(scores(barents.mds, display = "sites"))  
+
+# save NMDS results into dataframe
+site.scrs <- cbind(site.scrs, Depth = barents_env$Depth_cat)  
+
+# make depth a grouping variable and save to dataframe
+site.scrs <- cbind(site.scrs, Temperature = barents_env$Temp_cat) 
+
+# make temperature a grouping variable and save to dataframe
+head(site.scrs)  # View the dataframe
+
+
+# Rename Environmental Factor levels
+site.scrs$Temperature <- recode(site.scrs$Temperature, vc = "Very Cold", c = "Cold", m = "Medium", w = "Warm")
+
+site.scrs$Depth <- recode(site.scrs$Depth, shallow = "Shallow", mid = "Mid", deep = "Deep")
+
+# Save species data from nmds to dataframe
+spp.scrs <- as.data.frame(scores(barents.sppfit, display = "vectors"))  
+
+# Save species values into dataframe
+spp.scrs <- cbind(spp.scrs, Species = rownames(spp.scrs))  
+
+# Add species names to dataframe
+spp.scrs <- cbind(spp.scrs, pval = barents.sppfit$vectors$pvals) 
+
+# Add p values to dataframe so you can select species which are significant
+sig.spp.scrs <- subset(spp.scrs, pval<=0.05) 
+
+# Show only significant species (using 0.05 as cutoff)
+head(spp.scrs)  # View dataframe
+# Save environmental variables
+env.scores.barents <- as.data.frame(scores(barents.envfit, display = "vectors"))  
+
+# Extract nmds scores of all environmental variables from envifit dataframe
+env.scores.barents <- cbind(env.scores.barents, env.variables = rownames(env.scores.barents))  
+
+# Name them 
+env.scores.barents <- cbind(env.scores.barents, pval = barents.envfit$vectors$pvals) 
+
+# Add p values to dataframe
+sig.env.scrs <- subset(env.scores.barents, pval<=0.05) 
+
+# Show only significant variables (using 0.05 as cutoff)
+head(env.scores.barents)  # View dataframe
+
+
+# Basic nmds
+(nmds.plot.barents <- ggplot(site.scrs, aes(x=NMDS1, y=NMDS2)) + 
+# Create the plot
+  geom_point(aes(x = NMDS1, y = NMDS2, colour = factor(site.scrs$Depth), shape = factor(site.scrs$Temperature)), size = 2) + 
+  # Add site points to plot with the shape determined by temperature and colour determined by depth
+  coord_fixed() +
+  theme_classic() + 
+  theme(panel.background = element_rect(fill = NA, colour = "black", size = 1, linetype = "solid")) +
+  labs(colour = "Depth", shape = "Temperature", title = "Does Fish Species Composition Change at\n Varying Water Depths and Temperatures") + 
+  # Add legend labels
+  theme(legend.position = "right", legend.text = element_text(size = 12), legend.title = element_text(size = 12), axis.text = element_text(size = 10)) # Add legend
+)
+
+# Add species vector arrows
+(nmds.plot.barents.2 <- nmds.plot.barents +
+  geom_segment(data = sig.spp.scrs, aes(x = 0, xend=NMDS1, y=0, yend=NMDS2), arrow = arrow(length = unit(0.25, "cm")), colour = "grey10", lwd=0.3) + 
+  # Add vector arrows for significant species
+  ggrepel::geom_text_repel(data = sig.spp.scrs, aes(x=NMDS1, y=NMDS2, label = Species), cex = 3, direction = "both", segment.size = 0.25) 
+  # Add labels for species (with ggrepel::geom_text_repel so that labels do not overlap)
+)
+
+```
+
+
+PERMANOVA
+
+```{r}
+
+#PERMANOVA
+
+#Generate distance matrix
+
+clr_dist_matrix <- phyloseq::distance(physeq, method = "bray") 
+sampledf <- data.frame(sample_data(physeq)) %>% 
+  mutate(RS = paste(V_o_P, Region, sep ="_"))
+vegan::adonis2(clr_dist_matrix ~ Region * V_o_P, data = sampledf)
+beta <- betadisper(clr_dist_matrix, sampledf$RS)
+permutest(beta)
+
+
+
+
+#ADONIS test
+
+
+dispr <- vegan::betadisper(clr_dist_matrix, phyloseq::sample_data(physeq)$Region)
+summary(dispr)
+
+#kk <- adonis2(clr_dist_matrix ~ Region * V_o_P, data = phyloseq::sample_data(physeq), permutations = 999)
+
+plot(beta, main = "Ordination Centroids and Dispersion Labeled: Aitchison Distance", sub = "")
+boxplot(dispr, main = "", xlab = "")
+
+permutest(dispr)
+
+#Generate distances
+ord_unifrac <- ordinate(physeq, method = "PCoA", distance = "wunifrac") 
+ord_unifrac_un <- ordinate(physeq, method = "PCoA", distance = "unifrac")   
+#Plot ordinations
+a <- plot_ordination(physeq, ord_unifrac, color = "Region") + geom_point(size = 2)
+b <- plot_ordination(physeq, ord_unifrac_un, color = "Region") + geom_point(size = 2)
+cowplot::plot_grid(a, b, nrow = 1, ncol = 2, scale = .9, labels = c("Weighted", "Unweighted"))
+
+# CAP ordinate using Bray Curtis dissimilarity only looking at V4
+set.seed(23234) 
+ps1V4.rel_bray <- phyloseq::distance(physeq, method = "bray") # CAP ordinate 
+cap_ord <- ordinate(physeq = physeq,  
+                    method = "CAP", 
+                    distance = ps1V4.rel_bray, 
+                    formula = ~ Region)
+
+# chech which asix are explaining how mauch variation
+
+scree.cap <- plot_scree(cap_ord, "Scree Plot for MCs in Constrained Analysis of Principal Coordinates (CAPSCALE)")
+print(scree.cap)
+
+
+cap_plot <- plot_ordination(physeq = physeq, 
+                            ordination = cap_ord, 
+                            color = "Region", 
+                            shape = "V_o_P",
+                            axes = c(1,2)) + 
+  geom_point(size = 3) + 
+  geom_point(size = 3) 
+
+cap_plot + ggtitle("CAP_Plot")  + theme_bw()  
+
+
+# Now add the environmental variables as arrows 
+arrowmat <- vegan::scores(cap_ord, display = "bp")
+# Add labels, make a data.frame 
+arrowdf <- data.frame(labels = rownames(arrowmat), arrowmat)
+# Define the arrow aesthetic mapping 
+arrow_map <- aes(xend = CAP1, 
+                 yend = MDS1, 
+                 x = 0, y = 0, 
+                 shape = NULL, 
+                 color = NULL, 
+                 label = labels) 
+label_map <- aes(x = 1.3 * CAP1, y = 1.3 * MDS1, 
+                 shape = NULL, 
+                 color = NULL,
+                 label = labels)  
+
+arrowhead = arrow(length = unit(0.02, "npc")) 
+
+##now plot the arrow
+cap_plot <- cap_plot + geom_segment(mapping = arrow_map, size = .7, 
+                        data = arrowdf, color = "black", 
+                        arrow = arrowhead) + 
+  geom_text(mapping = label_map, size = 4,  
+            data = arrowdf, 
+            show.legend = TRUE) + ggtitle("CAP_Plot")  + theme_bw() 
+
+
+
+heat.sample <- plot_taxa_heatmap(physeq, subset.top = 10,
+    VariableA = "Region",
+    heatcolors = brewer.pal(10, "Blues"),
+    transformation = "compositional")
+
+```
+
+
+
+```{r}
+
+##########
+# ANOSIM #
+##########
+
+ASV.table <- read.csv(here("Outputs/good_output/New_70_90/ASV_table_samples_metazoa_without_pos_host_modified.csv"))
+
+OTU <- ASV.table %>% 
+  distinct(assign) %>% 
+  mutate(numero = row_number()) %>% 
+  mutate(OTU = "OTU") %>% 
+  mutate(OTU = paste(OTU,numero, sep="")) %>% 
+  select(assign, OTU)
+
+ASV.table <- full_join(ASV.table,OTU) %>%
+    mutate(species = gsub("\\(species\\)", "", assign),
+         species = gsub("\\(genus\\)", "sp.", species),
+         species = gsub("\\(family\\)", "sp.", species),
+         species = gsub("\\(order\\)", "sp.", species)) 
+
+
+
+ASV <- ASV.table %>% #He cambiado Hash por OTU porque para la diversidad son especies no secuencias difernetes
+  group_by(Tube, OTU) %>% 
+  dplyr::summarize(nReads=sum(nReads)) %>% 
+  dplyr::rename(Sample = Tube) %>%
+  group_by(Sample) %>% 
+  mutate(Total_Sample = sum(nReads)) %>% 
+  mutate(Percentage = (nReads*100)/Total_Sample) %>% 
+  ungroup() %>%
+#  mutate(Log2 = log(Percentage, base = 2)) %>% 
+#  group_by(OTU) %>% 
+#  mutate(max_number= max(Percentage)) %>% 
+#  ungroup() %>% 
+#  mutate(nReads_transf=(Percentage/max_number)) %>% 
+#  select(Sample,OTU,nReads_transf) %>%
+#  mutate(nReads_transf=(nReads_transf*100)) %>% 
+  pivot_wider(names_from = OTU, values_from = Percentage, values_fill = 0) %>% 
+  mutate(Season = case_when(
+    str_detect(Sample, "P") ~ "Spring",
+    str_detect(Sample, "V") ~ "Summer")) %>% 
+  mutate(Locality = case_when(
+    str_detect(Sample, "Ri") ~ "Ribera",
+    str_detect(Sample, "Urr") ~ "Urrutias")) %>%
+  mutate(Loc_Sea = paste(Season, Locality, sep="_")) %>% 
+    select(c(1, 79, 80, 81, 4:78))#select(c(77, 78, 2:76)) #
+  
+MM_spp <- ASV %>% select(c(5:79)) #MM_spp <- ASV %>% select(c(3:77))
+MM_env <- ASV %>% select(c(2:3)) #MM_env <- ASV %>% select(c(1:2))
+mat_MM_spp <- as.matrix(MM_spp)
+
+
+MM.mds <- metaMDS(MM_spp, distance = "bray", autotransform = FALSE)
+MM.envfit <- envfit(MM.mds, MM_env, permutations = 999)
+MM.sppfit <- envfit(MM.mds, MM_spp, permutations = 999)
+
+site.scrs <- as.data.frame(scores(MM.mds, display = "sites"))
+site.scrs <- cbind(site.scrs, Locality2 = MM_env$Locality)
+site.scrs <- cbind(site.scrs, Season2 = MM_env$Season)
+spp.scrs <- as.data.frame(scores(MM.sppfit, display = "vectors"))  
+spp.scrs <- cbind(spp.scrs, Species = rownames(spp.scrs)) 
+spp.scrs <- cbind(spp.scrs, pval = MM.sppfit$vectors$pvals) 
+sig.spp.scrs <- subset(spp.scrs, pval<=0.05)
+#env.scores.MM <- as.data.frame(scores(MM.envfit, display = "vectors"))  
+#env.scores.MM <- cbind(env.scores.MM, env.variables = rownames(env.scores.MM)) 
+
+
+(nmds.plot.barents <- ggplot(site.scrs, aes(x=NMDS1, y=NMDS2)) + 
+# Create the plot
+  geom_point(aes(x = NMDS1, y = NMDS2, colour = factor(site.scrs$Locality2), shape = factor(site.scrs$Season2)), size = 2) + 
+  # Add site points to plot with the shape determined by temperature and colour determined by depth
+  coord_fixed() +
+  theme_classic() + 
+  theme(panel.background = element_rect(fill = NA, colour = "black", size = 1, linetype = "solid")) +
+  labs(colour = "Depth", shape = "Temperature", title = "Does Fish Species Composition Change at\n Varying Water Depths and Temperatures") + 
+  # Add legend labels
+  theme(legend.position = "right", legend.text = element_text(size = 12), legend.title = element_text(size = 12), axis.text = element_text(size = 10)) # Add legend
+)
+
+# Add species vector arrows
+(nmds.plot.barents.2 <- nmds.plot.barents +
+  geom_segment(data = sig.spp.scrs, aes(x = 0, xend=NMDS1, y=0, yend=NMDS2), arrow = arrow(length = unit(0.25, "cm")), colour = "grey10", lwd=0.3) + 
+  # Add vector arrows for significant species
+  ggrepel::geom_text_repel(data = sig.spp.scrs, aes(x=NMDS1, y=NMDS2, label = Species), cex = 3, direction = "both", segment.size = 0.25) 
+  # Add labels for species (with ggrepel::geom_text_repel so that labels do not overlap)
+)
+
+
+MM_locality <- anosim(mat_MM_spp, MM_env$Locality, distance = "jaccard", permutations = 9999)
+MM_locality
+
+MM_season <- anosim(mat_MM_spp, MM_env$Season, distance = "bray", permutations = 9999)
+MM_season
+
+MM_env <- MM_env %>% 
+  mutate(Loc_Sea = paste(Locality,Season, sep="_"))
+
+MM_both <- anosim(mat_MM_spp, MM_env$Loc_Sea, distance = "bray", permutations = 9999)
+MM_both
+
+#Simper e spara ver que otus son los que están mas asociados a las diferencias detecteadas a tarves de ANOSIM
+
+simp_Locality <- simper(mat_MM_spp, MM_env$Locality)
+simp_Locality
+summary(simp_Locality, ordered = TRUE, digits = 3)
+
+
+simp_Season <- simper(mat_MM_spp, MM_env$Season)
+simp_Season
+summary(simp_Season, ordered = TRUE, digits = 3)
+
+
+simp_both <- simper(mat_MM_spp, MM_env$Loc_Sea)
+simp_both
+summary(simp_both, ordered = TRUE, digits = 3)
+
+```
+
+
+
+```{r}
+
+##########
+# SIMPER #
+##########
+
+#SIMPER (Similarity Percentage) is a simple method for assessing which taxa are primarily responsible for an observed difference between groups of samples (Clarke 1993).
+
+## Simper analysis, extract abundance matrix from a phyloseq object
+mouse_OTUs = as(otu_table(physeq), "matrix")
+
+# transpose so we have the OTUs as columns
+if(taxa_are_rows(physeq)){mouse_OTUs <- t(mouse_OTUs)}
+
+# Coerce the object to a data.frame
+mouse_OTUs_scaled = as.data.frame(mouse_OTUs)
+
+# running the simper analysis on the dataframe and the variable of interest "time"
+mouse_simper <- simper(mouse_OTUs_scaled, METADATA$Region, permutations = 100)
+
+# printing the top OTUs
+print(mouse_simper)
+summary(mouse_simper)
+
+```
+

@@ -1,0 +1,215 @@
+---
+title: "Untitled"
+author: "Andrea Corral Lou"
+date: "2023-11-30"
+output: html_document
+---
+
+
+```{r}
+
+#devtools::install_github("RobertDorazio/eDNAoccupancy")
+library(eDNAoccupancy)
+library(here)
+library(tidyverse)
+library(dplyr)
+
+
+```
+
+```{r}
+
+data("fungusDetectionData")
+data("fungusSurveyData")
+
+ASV <- read.csv(here("Outputs/good_output/ASV_tables/ASV_table_samples_metazoa_without_pos_host.csv"))
+unique(ASV$assign)
+
+#The final table should look like this dimensions
+
+df <- expand.grid(Station = c("Ri1_P", "Ri2_P", "Ri1_V", "Ri2_V", "Urr1_P", "Urr2_P", "Urr1_V", "Urr2_V"),
+                            Biol.rep = 1:4)
+
+
+Bittium2 <- ASV %>%
+  mutate(Station=factor(Station,levels = c("Ri1_P","Ri2_P","Ri1_V","Ri2_V","Urr1_P","Urr2_P","Urr1_V","Urr2_V"))) %>%
+  filter(assign=="Bittium reticulatum (species)") %>%
+  select(Station,Biol.rep,rep,nReads) %>% 
+  group_by(Station,Biol.rep,rep) %>% 
+  summarise(nReads=sum(nReads)) %>% 
+  mutate(nReads = 1) %>% 
+  pivot_wider(names_from = rep, values_from = nReads, values_fill = 0) %>% 
+  right_join(df) %>% 
+  replace_na(list ('1'= 0,
+                   '2'= 0,
+                   '3'= 0)) %>% 
+  dplyr::rename(site = Station) %>% 
+  dplyr::rename(sample = Biol.rep)
+
+Bittium <- as.data.frame(Bittium)
+
+covariates <- ASV %>%
+  mutate(Station=factor(Station,levels = c("Ri1_P","Ri2_P","Ri1_V","Ri2_V","Urr1_P","Urr2_P","Urr1_V","Urr2_V"))) %>% 
+  group_by(Station) %>% 
+  summarise(total = sum(nReads)) %>% 
+  mutate(Region = case_when(str_detect(Station , "Ri") ~ "Ribera",
+                            str_detect(Station , "Ur") ~ "Urrutias")) %>%
+  mutate(Season = case_when(str_detect(Station , "_V") ~ "Summer",
+                            str_detect(Station , "_P") ~ "Spring")) %>% 
+  dplyr::rename(site=Station)
+
+
+
+```
+
+
+```{r}
+head(fungusDetectionData)
+head(fungusSurveyData)
+
+fungusDetections <- occData(fungusDetectionData, siteColName = "site", sampleColName = "sample")
+BittiumDetections <- occData(Bittium, siteColName = "site", sampleColName = "sample")
+
+#Number of detections by sample
+head(fungusDetections$y)
+head(BittiumDetections$y)
+#Number of PCR replicates
+head(fungusDetections$K)
+head(BittiumDetections$K)
+
+set.seed(0157)
+
+#fit <- occModel(detectionMats = fungusDetections, niter = 11000, niterInterval = 5000)
+
+acl.prueba0 <- occModel(detectionMats = BittiumDetections, niter = 110, niterInterval = 20)
+
+#We are going to summary the results of the model and check if marchov chains are converged 
+#posteriorSummary(fit, burnin=1000, mcError = TRUE)
+
+posteriorSummary(acl.prueba0, burnin=1, mcError = TRUE)
+plotTrace(acl, c("beta.(Intercept)", "alpha.(Intercept)", "delta.(Intercept)"), burnin=2000)
+
+#We are going to use the number of total reads as a covariate
+
+covariates.sc <- scaleData(covariates)
+acl.prueba1 <- occModel(formulaSite =  ~ Region+Season,
+                 formulaSiteAndSample = ~ Season+total,
+                 formulaReplicate = ~ total,
+                 detectionMats = BittiumDetections,
+                 siteData = covariates.sc,
+                 niter = 100,
+                 niterInterval = 20,
+                 siteColName = "site")
+
+posteriorSummary(acl.prueba1, burnin=1, mcError = TRUE)
+plotTrace(acl.prueba1, c("beta.(Intercept)", "beta.RegionUrrutias", "alpha.(Intercept)", "delta.(Intercept)"), burnin=1000)
+
+plotTrace(acl.prueba1, c("beta.(Intercept)", "beta.RegionUrrutias", "beta.SeasonSummer", "alpha.(Intercept)","alpha.SeasonSummer","alpha.total", "delta.(Intercept)", "delta.total"), burnin=100)
+
+psi0 <- posteriorSummaryOfSiteOccupancy(acl.prueba0, burnin = 1) #
+theta0 <- posteriorSummaryOfSampleOccupancy(acl.prueba0, burnin = 1) #
+p0 <- posteriorSummaryOfDetection(acl.prueba0, burnin = 1) #
+
+cbind(psi=psi0$median,theta=theta0$median[,1], p=p0$median[,1])
+
+posteriorPredictiveLoss(acl.prueba1, burnin = 1) #Se prefieren modelos con valores mas bajos
+WAIC(acl.prueba1, burnin = 1) #Se prefieren modelos con valores mas bajos
+posteriorSummaryOfAUC(acl.prueba1, burnin = 1) #Se prefieren modelos con valores mas altos
+
+
+
+region <- covariates[,"Region"]
+plot(region,theta$median[,1], ylim=c(0,1), xlim=c(0,0.8), las=1, cex=2, cex.axis=1.3, cex.lab=1.5, xlab="Region", ylab="Probability of ocurrence of bittium eDNA in a sample")
+
+
+
+
+
+#We are going to see the correlation between different parameters
+
+plotACF(acl, c("beta.(Intercept)", "alpha.(Intercept)", "delta.(Intercept)"), burnin=1000)
+
+
+
+
+plotTrace(fit, c("beta.(Intercept)", "alpha.(Intercept)", "delta.(Intercept)"), burnin=1000)
+
+
+
+#Valores de probabilidad para los diferentes parametros en los diferentes sitios
+
+psi <- posteriorSummaryOfSiteOccupancy(acl, burnin = 2000) #
+theta <- posteriorSummaryOfSampleOccupancy(acl, burnin = 2000) #
+p <- posteriorSummaryOfDetection(acl, burnin = 2000) #
+ 
+cbind(psi=psi$median, theta=theta$median[,1], p=p$median[,1])
+
+#Evaluar la importancia relativa de cada relacion estimada 
+
+posteriorPredictiveLoss(acl, burnin = 1000)
+
+WAIC(acl, burnin = 1000)
+
+
+
+```
+
+```{r}
+
+ASV <- read.csv(here("Outputs/good_output/ASV_tables/ASV_table_samples_metazoa_without_pos_host.csv"))
+species <- unique(ASV$assign)
+
+#The final table should look like this dimensions
+
+df <- expand.grid(Station = c("Ri1_P", "Ri2_P", "Ri1_V", "Ri2_V", "Urr1_P", "Urr2_P", "Urr1_V", "Urr2_V"),
+                            Biol.rep = 1:4)
+
+for(i in length(species)) {
+  
+  sp <- ASV %>%
+  mutate(Station=factor(Station,levels = c("Ri1_P","Ri2_P","Ri1_V","Ri2_V","Urr1_P","Urr2_P","Urr1_V","Urr2_V"))) %>%
+  filter(assign==species[i]) %>%
+  select(Station,Biol.rep,rep,nReads) %>% 
+  group_by(Station,Biol.rep,rep) %>% 
+  summarise(nReads=sum(nReads)) %>% 
+  mutate(nReads = 1) %>% 
+  pivot_wider(names_from = rep, values_from = nReads, values_fill = 0) %>% 
+  right_join(df) %>% 
+  replace_na(list ('1'= 0,
+                   '2'= 0,
+                   '3'= 0)) %>% 
+  dplyr::rename(site = Station) %>% 
+  dplyr::rename(sample = Biol.rep)
+
+Bittium <- as.data.frame(Bittium)
+
+covariates <- ASV %>%
+  mutate(Station=factor(Station,levels = c("Ri1_P","Ri2_P","Ri1_V","Ri2_V","Urr1_P","Urr2_P","Urr1_V","Urr2_V"))) %>% 
+  group_by(Station) %>% 
+  summarise(total = sum(nReads)) %>% 
+  mutate(Region = case_when(str_detect(Station , "Ri") ~ "Ribera",
+                            str_detect(Station , "Ur") ~ "Urrutias")) %>%
+  mutate(Season = case_when(str_detect(Station , "_V") ~ "Summer",
+                            str_detect(Station , "_P") ~ "Spring")) %>% 
+  dplyr::rename(site=Station)
+
+covariates.sc <- scaleData(covariates)
+
+
+acl.prueba1 <- occModel(formulaSite =  ~ Region+Season,
+                 formulaSiteAndSample = ~ Season+total,
+                 formulaReplicate = ~ total,
+                 detectionMats = BittiumDetections,
+                 siteData = covariates.sc,
+                 niter = 10000,
+                 niterInterval = 2000,
+                 siteColName = "site")
+
+posteriorSummary(acl.prueba1, burnin=1000, mcError = TRUE)
+
+}
+  
+
+
+```
+

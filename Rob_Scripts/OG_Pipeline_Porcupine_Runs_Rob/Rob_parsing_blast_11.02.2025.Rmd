@@ -1,0 +1,373 @@
+---
+title: "Parsing BLAST"
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+
+We have successfully BLASTed our sequences and now we want to recover the taxonomical information associated with each search
+
+```{r}
+library(tidyverse)
+library(insect)
+library(taxonomizr)
+library(here)
+```
+
+## DO it once: get the insect::taxonomy
+
+```{r, eval=FALSE}
+taxonomy_now <- insect::taxonomy()
+
+write_rds(taxonomy_now, "data/taxonomy.rds")
+```
+
+
+
+## Load the blast_output
+
+```{r}
+#taxonomy.now <- read_rds("../data/taxonomy.rds")
+taxonomy.now <- as_tibble(read_rds(here ("data", "taxonomy.rds")))
+
+#blast_output <- "../pipeline_output/hash_key_221103.txt"
+# list.blasts <- list.files(here("good_output/blast/"))
+#   map (list.blasts, ~ read_table(here("good_output/blast", .x), 
+#                                   col_names = c("qseqid", "sseqid",  "pident", "length" ,"mismatch", "gapopen" ,"qstart","qend", "sstart", "send" ,"evalue" ,"bitscore", "staxid", "qlen"))) -> BLAST_results
+
+BLAST_results <- read_table(file = "CESGA/Resultados_blast/resultados_blast_07_02_2025.txt", col_names = c("qseqid", "sseqid",  "pident", "length" ,"mismatch", "gapopen" ,"qstart","qend", "sstart", "send" ,"evalue" ,"bitscore", "qlen", "staxid"))
+# 
+#  set_names(BLAST_results, nm=list.blasts) |> 
+#     bind_rows() -> BLAST_results
+
+# Many taxids will be repeated, do it only once
+
+BLAST_results %>%
+  separate_rows(staxid, sep = ";", convert = T) -> BLAST_results
+
+## Filter results by length
+
+BLAST_results |> 
+  filter(length > (0.9*qlen)) %>%
+  filter (pident > 90) |> 
+  distinct(staxid) -> ALL.TAXIDS
+
+BLAST_results |> distinct(qseqid, qlen) |> 
+  group_by(qlen) |> 
+  tally(sort = T)
+
+BLAST_results %>%
+distinct(staxid) -> ALL.TAXIDS
+# Bring in those for which we already know
+
+# previous.lineages <- read_csv(here("data","taxonomies_matches.csv"))
+```
+
+
+```{r}
+# Work only in the new ones
+
+ALL.TAXIDS |> 
+ dplyr::rename(taxID = 1) |> 
+  # anti_join(previous.lineages) |> 
+  pull() |> 
+  map(insect::get_lineage, taxonomy.now) -> all.lineages.list
+
+
+ALL.TAXIDS |> 
+  dplyr::rename(taxID = 1) |> 
+  # anti_join(previous.lineages) |> 
+  pull() %>%
+  set_names(x = all.lineages.list, nm = .)  -> all.lineages.list
+
+# ALL.TAXIDS %>%
+#   rename(taxID = 1) %>%
+#   mutate(taxID = as.numeric(taxID)) %>%
+#   anti_join(previous.lineages) %>%
+#    mutate(lineage = map(taxID, insect::get_lineage, taxonomy.now)) -> all.lineages
+
+
+# Find ids with 2 or more, it takes time in the server
+
+# ALL.TAXIDS %>%
+#   filter(! str_detect(staxid, ";")) %>%
+#   mutate(staxid = as.numeric(staxid)) %>%
+#   mutate(lineage = map(staxid, insect::get_lineage, taxonomy.now)) -> all.lineages
+
+# Save this object
+# ALL.TAXIDS = 3872
+
+write_rds(all.lineages.list, glue::glue(here("data/lineages_{Sys.Date()}.rds")))
+
+# Make them into a list
+# all.lineages %>%
+#   pull(lineage) -> all.lineages.list
+# 
+# set_names(all.lineages.list, nm= all.lineages$staxid) -> all.lineages.list
+list.files(here("data"), pattern = "lineages*")
+
+all.lineages.list <- read_rds(here("data", "lineages_2025-02-12.rds"))
+# Remove entries without taxonomy
+all.lineages.list %>% discard(function(x) is.na(x[[1]]) ) ->  all.lineages.list.good
+
+  all.lineages.list.good |> 
+  map_dfr(~ bind_cols(.x) |>  mutate (rank = names(.x)) ,.id = "taxID") -> all.lineages.long
+  
+  write_rds(all.lineages.long, here("data", "all.lineages.long.list.rds"))
+  
+  all.lineages.long |> 
+     filter (rank %in% c( "kingdom", "phylum", "class", "order", "family","genus" , "species")) -> all.lineages.long
+
+
+  ## Rejoin with previous lineage
+#   previous.lineages %>%
+#     bind_rows(all.lineages.long %>% mutate (taxID = as.numeric(taxID)) |> rename (name = 2))  |> 
+#      
+# 
+# write_csv( file.path(here("data","taxonomies_matches_today.csv")))
+  
+  all.lineages.export <- all.lineages.long
+  colnames(all.lineages.export)[2] <- "name"
+  
+  all.lineages.export %>% write_csv( file.path(here("data","taxonomies_matches_today.csv")))
+```
+
+```{r}
+custom.lca <- function (df, threshold = 95, bottom = 90) {  # this function allows to change cutoff parameters for a specified dataframe (df)
+    # ADDED on APR 2023
+    # IF there are matches with the structure FAMILY sp. RAndmom
+    # KEep them only if there aren't equally 
+  df %>%  
+  group_by(qseqid) %>%
+  select( pident, kingdom, phylum, class, order, family, genus, species) %>%
+  nest() %>% # for each query, calculate the agreed taxonomy
+  # ungroup %>% slice (1:10) %>%
+  mutate(consensus = purrr::map(data,  function(.x) {
+    # If there are 100% matches - keep those and calculate the LCA
+   
+    if (max(.x$pident == 100 )){
+       .x %>%
+        filter(pident == 100) %>%
+        select(-pident) %>%
+        condenseTaxa() %>% # agreement in Phylogeny
+      paste(., collapse = "%") |> 
+        as_tibble() |> 
+        mutate(cutoff = 100)
+      
+    }else{
+       # If there are no 100% matches, then keep things better than our cutoff
+    if(max(.x$pident > threshold )){
+
+      .x %>%
+        filter(pident > threshold) %>%
+        select(-pident) %>%
+        condenseTaxa() %>% # agreement in Phylogeny
+      paste(., collapse = "%") |> 
+        as_tibble() |>
+        mutate(cutoff = threshold)
+
+       
+
+    }else{
+      # If there are no matches, better than the cutoff, then keep everything above 90
+      
+    .x %>%
+         filter(pident > bottom) %>%
+        select(-pident) %>%
+    condenseTaxa() %>%
+       paste(., collapse = "%") |> 
+        as_tibble() |> 
+        mutate(cutoff = bottom)
+      }
+  }
+  }
+  
+  # Collapse all the taxa data separatated by %, como queda feo para leer en excel lo modificamos con # PERO es un lio dejarlo sin el % porq deja la table separada sin heads asi que mejor dejarlo como esta y luego en R separar las columnas por % y asignarles nombres
+  
+  )) %>%
+  select(qseqid, consensus) %>%
+  unnest(consensus)}
+
+```
+
+
+
+```{r}
+lca_with_cleaning <- function(df, cutoff = 90, keep.unresolved = F){
+  
+   if (!isTRUE(keep.unresolved)){
+    df |> 
+      filter (!str_detect(species, " sp.")) -> df
+  }  
+  df %>%  
+  group_by(qseqid) %>%
+  select( pident, kingdom, phylum, class, order, family, genus, species) %>%
+  nest()
+  
+  
+}
+```
+
+## Apply the function to our data
+Vamos a eliminar lo record indeterminado ya sea porwqu son especies mal asignadas o muestras ambientales o taxonomia dudosa
+Para distinguir lo util de lo inutil vamos a comprobar cualeas de estas "especies" tiene un genero asignado
+
+```{r}
+
+
+all.lineages.long <- read_csv(here("data","taxonomies_matches_today.csv")) 
+  
+all.lineages.long |> 
+  filter(rank == "genus") |> 
+  distinct(name,taxID) -> good.genus
+
+all.lineages.long |> 
+  filter(rank == "species") |> 
+  filter(str_detect(name, "cf\\.") | str_detect(name, "sp\\.") | str_detect(name, "environmental") | str_detect(name, "uncultured") |  str_count(name, " ")>1) -> weird 
+
+weird |> 
+  anti_join(good.genus, by="taxID") |> 
+  distinct(taxID) -> taxID.to.remove
+
+
+all.lineages.long |> 
+  anti_join(taxID.to.remove) -> all.lineages.long.good
+
+
+```
+De todos los BLAST results vamos a quedarnos solo los que sean de un 90% de similitud en al menos el 90% de la longitud de la secuencia
+
+```{r}
+
+BLAST_results |> 
+  filter(length > (0.9*qlen)) %>%
+  filter (pident > 90) -> BLAST_results_good
+
+all.lineages.long.good |> 
+  pivot_wider(names_from = rank, values_from = name) |> 
+  inner_join(BLAST_results_good,by=c("taxID"="staxid")) -> combined.dataset
+
+
+
+
+```
+
+A list of Accession numbers that only bring problems
+
+```{r}
+Remove.acc <- c("gi|2250419814|gb|ON716112.1|", 
+                "gi|1896813048|emb|LR827666.1|",
+                "gi|1896813047|emb|LR827665.1|" ,
+                "gi|1122285478|gb|KU714783.1|",
+                "gi|321172227|gb|HQ848633.1|",
+                "gi|1844048219|gb|MT499167.1|",
+                "gi|377685881|gb|JN850780.1|")
+
+combined.dataset |> 
+  filter (!sseqid %in% Remove.acc)-> combined.dataset
+```
+
+3731 taxID and 8 collumns
+lo que no tengo lineage information se remueve con el inner_join. Perdemos la informacion de algunos
+BLAST_results %>% anti_join(readytojoin,by=c("staxid"="taxID")) -> para tener la info de los sin lineage information
+Luego se puede explorar la informacion que hay dentro de los sin lineage BLAST_results %>% anti_join(readytojoin,by=c("staxid"="taxID")) %>% distinct(staxid) y me dio 141 hits. Que son muestras con problemas en el taxaid que tienen ; y contamos los casos y la mayoria se encuentran con dos o tres opciones de id lineage info por eso nos da error en el consensus ya que tiene diferencias.
+
+
+```{r}
+
+# BLAST_results %>%
+#   mutate(taxID = as.numeric(staxid)) %>%
+#   inner_join(readytojoin) -> input
+
+# custom.lca(df = combined.dataset,cutoff = 95,keep.unresolved = F) -> finalids
+# 
+# finalids %>%
+#   separate(consensus, into = c("kingdom", "phylum", "class", "order", "family", "genus", "species"), sep = "%") %>%
+#   dplyr::rename(Hash = 1) %>%
+#   write_csv(here("pipeline_output","hash_classified_2023_95_100.csv"))
+```
+
+```{r}
+thresholds <- list(99, 97, 95)
+map(thresholds, ~custom.lca( combined.dataset, .x)) -> ids.thresholds
+
+ids.thresholds |> 
+  set_names(nm=thresholds) -> ids.thresholds
+
+ids.thresholds |> bind_rows() |> arrange(desc(cutoff)) |> group_by(qseqid) |> slice(1) -> final.ids
+
+output_summary <- function(tibble){
+  
+  tibble %>% 
+    dplyr::rename(Hash =1) %>% 
+      separate(value, into = c("kingdom", "phylum", "class", "order", "family", "genus", "species"), sep = "%") %>%
+    # pivot_longer(-Hash, names_to = "rank", values_to = "name") %>% 
+    mutate (final_rank = case_when(species != "NA" ~ "species",
+                                   genus != "NA" ~ "genus",
+                                   class == "NA" ~ "class.na",
+                                   TRUE          ~ "Worse")) %>% 
+    group_by(cutoff,final_rank) %>% 
+    tally()
+}
+
+final.ids |>  output_summary() -> three.thresholds
+
+
+
+```
+## Rebajar expectativas
+
+Es posible que la base de datos este tan incompleta que nos diga que la query id es una especie en concreto a pesar de que su maxima pident sea <95%. Esto se puede deber a que no exista la especie correcta en la base de datos, pero si una especie proxima. EN este caso, para todas las identificaciones en las que la maxima pident sea 95 o peor, rebajaremos nuestra identificacion a nivel de genero.
+
+
+
+paso 1 eliminar la etiqueta de especie en 90 y 95
+
+```{r}
+final.ids |> 
+   dplyr::rename(Hash =1) %>% 
+      separate(value, into = c("kingdom", "phylum", "class", "order", "family", "genus", "species"), sep = "%") |> 
+  mutate(species = case_when(cutoff <=95 ~ "NA",
+                             TRUE       ~ species)) -> step1
+
+step1 |> 
+    # pivot_longer(-Hash, names_to = "rank", values_to = "name") %>% 
+    mutate (final_rank = case_when(species != "NA" ~ "species",
+                                   genus != "NA" ~ "genus",
+                                   class == "NA" ~ "class.na",
+                                   TRUE          ~ "Worse")) %>% 
+    group_by(cutoff,final_rank) %>% 
+    tally()
+```
+
+Por otra parte, los matches al 100 o 99 % en los que no se ha llegado a una id a nivel de genero o especie merecen ser revisados, ya que a ese nivel de similitud es poco probable que haya secuencias de distinto genero.
+
+```{r}
+Hashes.Seqs <- read_csv(here("good_output/tolerant/hash_key_220.csv"))
+
+step1 |> 
+  filter (cutoff >=99) |> 
+  filter (genus == "NA") |> 
+  left_join(Hashes.Seqs) |> 
+  pull(Sequence)
+
+combined.dataset |> 
+  rename(Hash = qseqid) |> 
+  semi_join(step1 |> 
+  filter (cutoff >=99) |> 
+  filter (genus == "NA"), by = "Hash" ) |> 
+  arrange(Hash,desc(pident)) |> View()
+```
+
+Hay unos dinoflagelados de dudosa taxonomia. 
+
+
+
+
+
+```{r}
+step1 |> select(-cutoff) |> 
+write_csv( here("data", "hash_id_2023-07-12.csv"))
+```
+
+

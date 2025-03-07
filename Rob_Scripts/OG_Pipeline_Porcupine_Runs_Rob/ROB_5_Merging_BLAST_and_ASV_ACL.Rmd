@@ -1,0 +1,306 @@
+---
+title: "nx_Merging_BLAST_and_ASV_ACL"
+output: html_document
+date: "2025-12-02"
+---
+
+(1) **Cargamos los paquetes necesarios**
+
+```{r}
+
+library(here)
+library(tidyverse)
+library(vegan)
+library(reshape2)
+
+```
+
+(2) **De nuestro archivo de hashes con taxonomia, seleccionamos las columanas de taxonomia y las unimos, para acabar con un archivo que sea una columna de hashes y una columna de taxonomia (en vez   de 7) (classified). También vamos a cargar el archivo de ASV, en que tenemos la informacion del numero de lecturas que hay en cada muestra de cada hash y el csv de metadata en el que me dice la libreria y el barcode para cada muestra (asv.table). Separamos cada muetsra para tener toda la informacion posible y poder comparar entre ellas (metadata).** DOS OPCIONES
+
+```{r}
+
+
+# classified.before <- read_csv(here("Outputs/good_output/", "hash_id_2023-10-06_ACL.csv"))
+classified <- read_csv(here("Outputs/", "hash_id_2025-20-02_ACL.csv"))
+
+#ROB: i didn't use this, don't know what the two different classifieds are for: 
+#ss <- anti_join(classified,classified.before) 
+
+
+taxonomy.cols <- colnames(classified)[-1]
+
+classified |> 
+  unite(taxonomy.cols, col = "taxa", sep="%") -> classified
+
+########################################
+# 1.1. Cuando quiero dividir por F y R #
+########################################
+#ROB: only kept the top line because the tbale was not separated into fwd rv reads
+ asv.table <- read_csv(here("run2/ASV_table_after_vsearch.csv")) 
+# %>%
+#   mutate(name2 = str_replace(sample, "1_filt.fastq.gz", "")) %>% 
+#   mutate(name = str_replace(name2, "2_filt.fastq.gz", "")) %>% 
+#   select(name,Hash,nReads)
+
+asv.table.classified <- asv.table |>
+  inner_join(classified)
+
+asv.table.metazoa <- asv.table.classified |>
+  filter(str_detect(taxa, "Metazoa"))
+
+write.csv(asv.table.classified, here("Outputs/asv_table_classified_20_2_2025_dirty.csv"),row.names = FALSE)
+write.csv(asv.table.metazoa, here("Outputs/asv_table_metazoa_20_2_2025_dirty.csv"),row.names = FALSE)
+
+
+asv.table.classified.join <- asv.table.classified %>%   
+  mutate(name = str_replace(name, "Pos_ctrl", "Posctrl")) %>% 
+  separate(., sample, into = c("s1", "s2", "s3", "s4"), sep = "_") %>%
+  mutate(Sample = paste(s1, s2, sep = "_")) %>%
+  select(-s1, -s2, -s3, -s4) %>%
+  select(Sample,Hash,nReads) %>%
+  group_by(Sample, Hash) %>%
+  summarise(nReads = sum(nReads)) %>%
+  separate(Sample, into = c("Tube", "rep"), sep = "_rep", remove = F) %>%
+  separate(Tube, into = c("Station", "Biol.rep"), sep = "\\.", remove = F) %>%
+  mutate(V_o_P = case_when(str_detect(Sample, "V_rep") ~ "V",
+                           str_detect(Sample, "P_rep") ~ "P"),
+         Station = paste(Station, V_o_P, sep = "_"),
+         Region = case_when(str_detect(Sample, "Ri") ~ "Ri",
+                            str_detect(Sample, "Urr")~ "Urr" )) %>% 
+  separate(Biol.rep, into = "Biol.rep", sep = 1) %>%
+  select(Sample,Tube,Station,Biol.rep,rep,V_o_P,Region,Hash,nReads)
+
+ metadata <- asv.table %>%
+   select(-Hash,-nReads) %>%
+   distinct(.,)
+
+###########################################
+# 1.1. Cuando no quiero dividir por F y R #
+###########################################
+
+# asv.tableXXX <- read_csv(here("run2/ASV_table_after_vsearch.csv")) %>%
+#   # mutate(sample = str_replace(sample, "1_filt.fastq.gz", "")) %>%
+#   group_by(Sample, Hash) %>%
+#   summarise(nReads = sum(nReads)) %>%
+#   separate(Sample, into = c("Tube", "rep"), sep = "_rep", remove = F) %>%
+#   separate(Tube, into = c("Station", "Biol.rep"), sep = "\\.", remove = F) %>%
+#   mutate(V_o_P = case_when(str_detect(sample, "V_rep") ~ "V",
+#                            str_detect(sample, "P_rep") ~ "P"),
+#          Station = paste(Station, V_o_P, sep = "_"),
+#          Region = case_when(str_detect(sample, "Ri") ~ "Ri",
+#                             str_detect(sample, "Urr")~ "Urr" )) %>% 
+#   separate(Biol.rep, into = "Biol.rep", sep = 1) %>%
+#   select(sample,Tube,Station,Biol.rep,rep,V_o_P,Region,Hash,nReads)
+
+
+
+ metadata <- asv.table %>%
+   select(-Hash,-nReads) %>%
+   distinct(.,)
+ 
+
+```
+
+(3) **Unimos nuestra tabla de ASVs y muestra con la tabla de taxonomia y hashes (asv.table con classified) y generamos la species.table en la que tenemos Sample, taxa y nreads.**
+
+```{r}
+
+asv.table |>
+  inner_join(classified)|>
+  select(sample,Tube,Station,Biol.rep,rep,V_o_P,Region,taxa,nReads) -> species.table
+
+kk <- unique(species.table$taxa)
+
+```
+
+(3) **Nos quedamos unicamente con las lecturas asignadas al reino Metazoa y formamos una tabla resumida por muestra para el numero de lecturas obtenidas para cada phylum. species.table2 son filtradas para metazoa y resumido el numeo de class, family y species**
+
+```{r}
+
+taxonomy.cols <- c("kingdom", "phylum",  "class",   "order",   "family",  "genus",   "species")
+
+species.table |> 
+  separate(taxa, into = taxonomy.cols, sep = "%") -> species.table 
+
+species.table |> 
+  filter (kingdom== "Metazoa") -> Metazoa.table 
+
+write.csv(species.table,here("Outputs/good_output/species_table.csv"))
+write.csv(Metazoa.table,here("Outputs/good_output/metazoa_species_table.csv"))
+
+#Hacer una figurita rapida
+
+species.table|> 
+  group_by(Sample,  phylum) |> 
+  summarise(across(c(class, family, species), n_distinct)) |>
+  inner_join(metadata, by="Sample") |>
+  ggplot(aes(x = Tube, fill = phylum, y = family))+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 9)) +
+    geom_col()
+
+```
+
+(4) **Las especies que encontramos en el control positivo, ¿están presentes en el resto de muestras?. hacemos un archivo con las taxa que hay en el postivo (taxa.inpos) lo juntamos con la tabla de species.table y metadata. NOTA: Para tolerante hay representatividad en un montonazo de muestras.** 
+
+```{r}
+
+species.table |> 
+  unite(taxa,taxonomy.cols, sep="%") |> 
+  filter (str_detect(Sample, "Pos")) |> 
+  ungroup() |> 
+  distinct(taxa) -> taxa.inpos
+
+
+species.table |> 
+  unite(taxa,taxonomy.cols, sep="%") -> species.table
+
+taxa.inpos|> 
+  inner_join(species.table) -> hybrid
+
+#Tenemos 4 muestras de Ur donde salen 
+
+```
+
+(5) **Vamos a trabajar solo con las muestras, sin los controles positivos. Cuantas muestras tenemos? y taxones diferentes?**
+
+```{r}
+
+species.table |> 
+  separate(taxa, into = taxonomy.cols, sep = "%") |>
+  filter (!str_detect(Sample, "Pos")) -> species.table.without.pos
+
+species.table.without.pos %>% 
+  ungroup() |> 
+  summarise(n_distinct(Sample), # 96
+            n_distinct(taxa))   # 111
+
+#HACEMOS UNA GRAFICA
+
+taxonomy.cols <- c("kingdom", "phylum",  "class",   "order",   "family",  "genus",   "species")
+
+species.table.without.pos |> 
+  separate(taxa, into = taxonomy.cols, sep = "%") |> 
+  filter (kingdom== "Metazoa") |> 
+  group_by(Sample,  phylum) |> 
+  summarise(across(c(class, family, species), n_distinct)) |> 
+  inner_join(metadata) -> species.table.without.pos2
+species.table.without.pos2 |> 
+  ggplot(aes(x = Region, fill = phylum, y = family))+
+   theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 9)) +
+    geom_col()
+
+
+write.csv(species.table.without.pos, here("Outputs/good_output/species_table_withoutpos.csv"), row.names = FALSE)
+
+
+```
+
+
+
+
+
+
+
+(6) **Vamos a ver el nivel de replicación con unas graficas**
+
+```{r}
+
+#Resumen de las muetras que tenemos y las replicas
+
+species.table.without.pos %>% 
+  ungroup() %>% 
+  group_by(Tube) %>% 
+  summarise(nrep = n_distinct(sample_id)) 
+
+
+species.table.without.pos %>%
+  group_by (sample_id) %>%
+  mutate (Tot = sum(nReads),
+         prop = nReads / Tot) %>% 
+  group_by (taxa) %>%
+  mutate (Colmax = max (prop),
+          Normalized.reads = prop / Colmax) -> cleaned.tibble
+
+tibble_to_matrix <- function (tb) {
+  
+  tb %>% 
+    group_by(sample_id, taxa) %>% 
+    summarise(nReads = sum(Normalized.reads)) %>% 
+    spread ( key = "taxa", value = "nReads", fill = 0) -> matrix_1
+    samples <- pull (matrix_1, sample_id)
+    matrix_1 %>% 
+      ungroup() %>% 
+    dplyr::select ( - sample_id) -> matrix_1
+    data.matrix(matrix_1) -> matrix_1
+    dimnames(matrix_1)[[1]] <- samples
+    vegdist(matrix_1) -> matrix_1
+}
+
+tibble_to_matrix (cleaned.tibble) -> all.distances.full
+
+# Do all samples have a name?
+summary(is.na(names(all.distances.full))) # Yes they do
+
+
+
+```
+
+Let's make the pairwise distances a long table. cuanto mas unido a cero mas pericido es
+```{r}
+
+as_tibble(subset(melt(as.matrix(all.distances.full)))) -> all.distances.melted
+
+# Any mjor screw ups
+summary(is.na(all.distances.melted$value))
+
+# Now, create a three variables for all distances, they could be PCR replicates, BIOL replicates, or from the same site
+
+all.distances.melted %>%
+  filter(Var1!= Var2) |> 
+  left_join(metadata, by = c("Var1" = "sample_id")) |> 
+  left_join(metadata, by = c("Var2" = "sample_id") ) |> 
+    mutate (Distance.type = case_when( Tube.x == Tube.y ~ "PCR.replicates",
+                                      Station.x == Station.y ~ "Biol.replicates",
+                                      Region.x == Region.y ~ "Same Site",
+                                      TRUE ~ "Different Site"
+                                     )) %>%
+  dplyr::select(Sample1 = Var1, Sample2 = Var2 , value , Distance.type)  -> all.distances.to.plot
+
+# Checking all went well
+
+sapply(all.distances.to.plot, function(x) summary(is.na(x))) # good boi
+
+all.distances.to.plot$Distance.type <- all.distances.to.plot$Distance.type  %>% fct_relevel( "PCR.replicates", "Biol.replicates", "Same Site")
+
+  ggplot (all.distances.to.plot ) +
+  geom_histogram (aes (fill = Distance.type, x = value, after_stat(ndensity)), position = "dodge",  alpha = 0.9, bins = 50) +
+  facet_wrap( ~ Distance.type) +
+  labs (x = "Pairwise dissimilarity", y = "density" ,
+        Distance.type = "Distance") +
+    guides (fill = "none")
+ggsave("visual.anova.png", dpi = "retina")
+
+```
+
+
+
+
+## Que cosas aparecen demasiado para ser nada
+
+```{r}
+asv.table|>
+  anti_join(classified) |> 
+  group_by( Tube, Hash) |> 
+  summarise (nReads = sum(nReads),
+             nreps = n_distinct(sample)) %>% 
+  group_by(Hash) %>% 
+  summarise(n_tubes = n_distinct(Tube),
+            nmaxreps= max(nreps),
+            nre = sum(nReads)) %>% 
+  filter(nre > 1000) %>% 
+  arrange(desc(nre)) %>% 
+  inner_join(Hashes.Seqs) %>% 
+  dplyr::slice(1:10) %>% 
+  fasta.writer(sequence = Sequence, header = Hash, file.out = here("for_bold.fasta"))
+```
+

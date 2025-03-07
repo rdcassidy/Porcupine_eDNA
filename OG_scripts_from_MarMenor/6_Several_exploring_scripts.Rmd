@@ -1,0 +1,1105 @@
+---
+title: "Explorar"
+author: "Andrea Corral Lou"
+date: "2023-09-08"
+output: html_document
+---
+
+
+(0) **Voy a hacer las tablas necesarias, ASV_table; ASV_withoutpos; ASV_table_classified; ASV_table_metazoa; ASV_table_nonhost; ASV_table_nonmetazoa**
+
+```{r}
+
+ASV_table_samples_metazoa_without_pos_host_modified.csv
+
+table.ASV <- read.csv(here("Outputs/good_output/New_70_90/ASV_table_samples_metazoa_without_pos_host_modified.csv")) %>% 
+  mutate(sample = stringr::str_replace(Sample, "Pos_ctrl", "Posctrl")) %>% 
+  separate(., sample, into = c("s1", "s2", "s3", "s4"), sep = "_") %>%
+  mutate(Sample = paste(s1, s2, sep = "_")) %>%
+  select(-s1, -s2, -s3, -s4) %>%
+  select(Sample,Hash,nReads) %>%
+  group_by(Sample, Hash) %>%
+  summarise(nReads = sum(nReads)) %>%
+  separate(Sample, into = c("Tube", "rep"), sep = "_rep", remove = F) %>%
+  separate(Tube, into = c("Station", "Biol.rep"), sep = "\\.", remove = F) %>%
+  mutate(V_o_P = case_when(str_detect(Sample, "V_rep") ~ "V",
+                           str_detect(Sample, "P_rep") ~ "P"),
+         Station = paste(Station, V_o_P, sep = "_"),
+         Region = case_when(str_detect(Sample, "Ri") ~ "Ri",
+                            str_detect(Sample, "Urr")~ "Urr" )) %>% 
+  separate(Biol.rep, into = "Biol.rep", sep = 1) %>%
+  select(Sample,Tube,Station,Biol.rep,rep,V_o_P,Region,Hash,nReads) %>%
+  write.csv(here("Outputs/good_output/New_70_90/Tablas_finales/ASV_table_samples.csv"), row.names = FALSE)
+
+classified <- read.csv(here("Outputs/good_output/New_70_90/Tablas_finales/classified.csv")) %>% 
+  distinct()
+
+
+classified <- read.csv(here("Outputs/good_output/New_70_90/hash_id_2023-12-28_ACL.csv")) %>% 
+  distinct()
+
+#anti_join(classified2,classified, by = "Hash") -> kk
+  
+table.ASV.classified <- table.ASV %>% 
+  inner_join(classified) %>%
+  mutate(assign = ifelse(!is.na(species), paste0(species, " (species)"),
+                ifelse(!is.na(genus), paste0(genus, " (genus)"),
+                ifelse(!is.na(family), paste0(family, " (family)"),
+                ifelse(!is.na(order), paste0(order, " (order)"),
+                ifelse(!is.na(class), paste0(class, " (class)"),                
+                ifelse(!is.na(phylum), paste0(phylum, " (phylum)"),                 
+                ifelse(!is.na(kingdom), paste0(kingdom, " (kingdom)"), NA)))))))) %>% 
+  write.csv(here("Outputs/good_output/New_70_90/Tablas_finales/ASV_table_samples_classified.csv"), row.names = FALSE)
+  
+  
+table.ASV.classified.metazoa <- table.ASV.classified %>% 
+  filter(kingdom=="Metazoa") %>% 
+  write.csv(here("Outputs/good_output/New_70_90/Tablas_finales/ASV_table_samples_metazoa.csv"), row.names = FALSE)
+  
+  
+table.ASV.classified.NONmetazoa <- table.ASV.classified %>% 
+  filter(is.na(kingdom) | kingdom != "Metazoa") %>% 
+  write.csv(here("Outputs/good_output/New_70_90/Tablas_finales/ASV_table_samples_NONmetazoa.csv"), row.names = FALSE)
+    
+
+table.ASV.classified.metazoa.without.pos <- table.ASV.classified.metazoa %>% 
+  filter(Tube!="Posctrl") %>% 
+  write.csv(here("Outputs/good_output/New_70_90/ASV_table_samples_metazoa_without_pos.csv"), row.names = FALSE)
+
+
+tabla.de.asv.1 <- table.ASV.classified.metazoa.without.pos %>%
+  filter(Tube=="Ri2.2P") %>%
+  subset(Hash != "361bcc3683c5758710e3d55af1be7b35bc73a2f7")
+
+tabla.de.asv.2 <- table.ASV.classified.metazoa.without.pos %>%
+  filter(Region=="Ri") %>%
+  subset(Tube != "Ri2.2P") %>%
+  subset(Hash != "45e4b39706bd1a31b7ca4ec54e548bb9112f6f5d")
+
+tabla.de.asv.3 <- table.ASV.classified.metazoa.without.pos %>%
+  filter(Region=="Urr") %>%
+  subset(Hash != "7a781ee06cb041eb1b7660badc1098ffcb35bec4")
+
+tabla.asv.without.pos.host <- rbind(tabla.de.asv.1,tabla.de.asv.2,tabla.de.asv.3) %>% 
+  write.csv(here("Outputs/good_output/New_70_90/ASV_table_samples_metazoa_without_pos_host.csv"), row.names = FALSE)
+
+tabla.asv.without.pos.host.byLOC <- tabla.asv.without.pos.host %>%
+  mutate(region_station =paste(Region,V_o_P, sep = "_")) %>% 
+  group_by(region_station, Hash) %>%
+  summarise(nReads = sum(nReads)) %>%
+  inner_join(classified) %>%
+  mutate(assign = ifelse(!is.na(species), paste0(species, " (species)"),
+                ifelse(!is.na(genus), paste0(genus, " (genus)"),
+                ifelse(!is.na(family), paste0(family, " (family)"),
+                ifelse(!is.na(order), paste0(order, " (order)"),
+                ifelse(!is.na(class), paste0(class, " (class)"),                
+                ifelse(!is.na(phylum), paste0(phylum, " (phylum)"),                 
+                ifelse(!is.na(kingdom), paste0(kingdom, " (kingdom)"), NA)))))))) %>%
+  write.csv(here("Outputs/good_output/New_70_90/ASV_table_samples_metazoa_without_pos_host_byreg_station.csv"), row.names = FALSE)
+  
+
+
+```
+
+
+```{r}
+#Quiero los cuatro; Ri_V; Ri_P; Urr_V; Urr_P
+
+data_muestra <- subset(tabla.asv.without.pos.host.byLOC, region_station == "Ri_V") %>% 
+  group_by(phylum) %>% 
+  summarise(nReads=sum(nReads))
+
+colores <- c('#8dd3c7', '#ffffb3', '#bebada', '#fb8072', '#80b1d3', '#fdb462', '#b3de69', '#fccde5')
+categorias <- c('Annelida', 'Arthropoda', 'Bryozoa', 'Chordata', 'Echinodermata', 'Cnidaria', 'Mollusca', 'Porifera')
+colores_df <- data.frame(Categoria = categorias, Color = colores)
+colores_df <- as.data.frame(colores_df) %>% 
+  dplyr::rename(phylum=Categoria)
+data <- data_muestra %>% 
+  left_join(colores_df)
+
+data$Color -> colores
+
+grafico <- ggplot(data, aes(x = "", y = nReads, fill = phylum)) +
+  geom_bar(stat = "identity") +
+  coord_polar(theta = "y") +
+  scale_fill_manual(values = colores) +
+  theme_void()
+
+grafico <- grafico + 
+  scale_fill_manual(values = colores_df$Color, breaks = colores_df$phylum, labels = colores_df$phylum) +
+  guides(fill = guide_legend(title = "Phylum")) +
+  theme(legend.title = element_text(face = "bold", size = 12))
+
+ggsave(filename = here("Outputs/good_output/figuras/Ri_V.png"), plot = grafico, width = 6, height = 6, dpi = 300)
+
+
+
+```
+
+
+
+
+(1) **Crago el ASV table sin POS, A continuación inteno resumir las species detectadas para cad amuestra, por si hubiese varios hasehes de una misma specie (como haplotipos), que la contasen como una especie y sumase las nReads (no hay en este caso)**
+
+```{r}
+
+library(readr)
+
+table.ASV <- read.csv(here("Outputs/good_output/species_table_withoutpos.csv"))
+
+table.ASV.metazoa <- table.ASV %>%
+  mutate(assign = ifelse(!is.na(species), paste0(species, " (species)"),
+                ifelse(!is.na(genus), paste0(genus, " (genus)"),
+                ifelse(!is.na(family), paste0(family, " (family)"),
+                ifelse(!is.na(order), paste0(order, " (order)"),
+                ifelse(!is.na(class), paste0(class, " (class)"),                
+                ifelse(!is.na(phylum), paste0(phylum, " (phylum)"),                 
+                ifelse(!is.na(kingdom), paste0(kingdom, " (kingdom)"), NA)))))))) %>%
+  filter(kingdom=="Metazoa") %>% 
+  mutate(taxa = paste(kingdom,phylum,class,order,family,genus,species,assign, sep="%")) %>% 
+  select(1:7,15,17) %>% 
+  group_by(., Sample,taxa) %>% 
+  summarise(total_numero = sum(nReads))
+
+write.csv(table.ASV.metazoa,here("Outputs/good_output/species_table_Metazoa_assign.csv"),row.names = FALSE)
+
+```
+
+(2) **Cuantos generos hay? y especies?**
+
+```{r}
+
+num.genus <- data.frame(unique(na.omit(table.ASV.metazoa$genus))) #53 generos
+num.species <- data.frame(unique(na.omit(table.ASV.metazoa$species))) #35 species
+num.assign <- data.frame(unique(na.omit(table.ASV.metazoa$assign))) #73 asignaciones
+
+##Cantas veces aparecen los generos en las diferentes muestras
+#
+#conteo <- data.frame(table(table.ASV$Sample, table.ASV$genus))
+#
+## Encontrar las especies que aparecen solo en una muestra
+#
+#especies_solo_en_una_muestra <- data.frame(rownames(conteo)[rowSums(conteo == 1) == 1])
+#
+## Filtrar el dataframe original para obtener las filas correspondientes a esas especies
+#resultado <- ASV.table.taxa.split[ASV.table.taxa.split$species %in% especies_solo_en_una_muestra, ]
+#
+## Mostrar el resultado
+#print(resultado)
+
+
+```
+
+
+(3) **Queremos ver las especies que se encuentras solo una vez o que se compartene ntre llas diferentes catalogaciones**
+
+```{r}
+
+library(dplyr)
+
+#Con etse script podemos saber que muestras son las que son compartidas por las cuatro replicas biologicas (esponjas); max(Muestras_Compartidas), o las que solo aparecen en una muestra; min(Muestras_Compartidas)
+
+compartidas.sponges <- table.ASV.metazoa %>%
+  group_by(Station, assign) %>%
+  summarize(Muestras_Compartidas = n_distinct(Biol.rep),
+            Muestras = toString(unique(Biol.rep))) %>%
+  filter(Muestras_Compartidas == max(Muestras_Compartidas))
+
+#Con etse script podemos saber que muestras son las que son compartidas por las dos regiones (esponjas); max(Muestras_Compartidas), o las que solo aparecen en una muestra; min(Muestras_Compartidas)
+
+compartidas.region <- table.ASV.metazoa %>%
+  group_by(Region, assign) %>%
+  summarize(Muestras_Compartidas = n_distinct(V_o_P),
+            Muestras = toString(unique(V_o_P))) %>%
+  filter(Muestras_Compartidas == max(Muestras_Compartidas))
+
+```
+
+(4) **Seleccionar los hashes de una especie/genero para luego selecccionar los fasta y hacer un archivo fasta de las secuenicas de la specie/genero/rank seleccionado**
+
+```{r}
+
+library(Biostrings)
+library(phylotools)
+library(BiocManager)
+library(here)
+library(tidyr)
+library(dplyr)
+
+
+
+#Cargo el archivo que contiene los hash y la taxonomía (hash_id_2023-09-05.csv)
+
+classified.hashes <- read.csv(here("Outputs/good_output/New_70_90/ASV_table_samples_metazoa_without_pos_host_modified2.csv"),header = T)
+
+#unclassified.hashes <- read.csv(here("Outputs/good_output/hash_key_after_vsearch.csv"),header = T) %>% 
+#  anti_join(classified.hashes)
+#hash.unn <- unclassified.hashes [,-c(2)]
+#secuencias.unn <- secuencias.fasta[hash.unn]
+#writeXStringSet(secuencias.unn, file = here("Outputs/good_output/New_70_90/unnasigned.fas"),format = "fasta")
+                
+#classified.hashes <- classified.hashes %>%
+#  mutate(assign = ifelse(!is.na(species), paste0(species, " (species)"),
+#                ifelse(!is.na(genus), paste0(genus, " (genus)"),
+#                ifelse(!is.na(family), paste0(family, " (family)"),
+#                ifelse(!is.na(order), paste0(order, " (order)"),
+#                ifelse(!is.na(class), paste0(class, " (class)"),                
+#                ifelse(!is.na(phylum), paste0(phylum, " (phylum)"),                 
+#                ifelse(!is.na(kingdom), paste0(kingdom, " (kingdom)"), NA))))))))
+#Cargo el fasta donde están las secuencias con el hash (), todas las que he metido a blast
+
+secuencias.fasta <- readDNAStringSet(here("Outputs/good_output/hashes_after_vsearch.fasta"))
+
+#Selecciono los organismos que quiero (en este caso voy a seleccionar genus=Haliclona), pero prodria ser class=Demospongiae
+
+classified.hashes$short_hash <- substr(classified.hashes$Hash, 1, 5) #Cojo los 5 carcateres del hash
+summary.hash <- classified.hashes %>% 
+  select(phylum, Hash, short_hash, assign) %>% 
+   distinct()
+
+phylum_counts <- classified.hashes %>%
+  group_by(phylum) %>%
+  summarise(num_hashes = n_distinct(Hash)) %>%
+  arrange(phylum)
+
+summary.hash <- summary.hash %>%
+  mutate(assign = gsub(" ", "_", assign)) %>% 
+  mutate(assign = gsub(" ", "", assign)) %>% 
+  mutate(new_name = paste(assign, "_hash_", short_hash, sep=""))
+  
+hash.an <- summary.hash %>% 
+  filter(phylum=="Porifera") %>% 
+  select(Hash,new_name)
+
+#hash.an <- summary.hash %>% 
+#  filter(phylum=="Annelida") %>% 
+#  mutate(name = paste(Hash,kingdom,phylum,order,family,genus,species, sep=";"),remove=F) %>% 
+#  select(Hash,name)
+  
+#write.csv(hash.Demospongiae,here("Outputs/good_output/hash_demospongiae.csv"))
+
+hash.secuencias.an <- hash.an [,-c(2)]
+
+secuencias.an <- secuencias.fasta[hash.secuencias.an]
+
+colnames(hash.an) [1] <- "old_name"
+colnames(hash.an) [2] <- "new_name"
+colnames(hash.an)
+
+writeXStringSet(secuencias.an, file = here("Outputs/good_output/New_70_90/phylum_sequences/Porifera.fasta"),format = "fasta")
+
+
+rename.an <- rename.fasta(infile = here("Outputs/good_output/New_70_90/phylum_sequences/Porifera.fasta"),ref_table = hash.an,outfile = here("Outputs/good_output/New_70_90/phylum_sequences/Porifera.fasta"))
+
+
+
+
+```
+
+```{r}
+
+ASV.after.vsearch <- read.csv(here("Outputs/good_output/ASV_table_after_vsearch.csv")) %>% 
+  mutate(sample = str_replace(sample, "Pos_ctrl", "Posctrl")) %>% 
+  separate(., sample, into = c("s1", "s2", "s3", "s4"), sep = "_") %>%
+  mutate(Sample = paste(s1, s2, sep = "_")) %>%
+  select(-s1, -s2, -s3, -s4) %>%
+  select(Sample,Hash,nReads) %>%
+  group_by(Sample, Hash) %>%
+  summarise(nReads = sum(nReads)) %>%
+  separate(Sample, into = c("Tube", "rep"), sep = "_rep", remove = F) %>%
+  separate(Tube, into = c("Station", "Biol.rep"), sep = "\\.", remove = F) %>%
+  mutate(V_o_P = case_when(str_detect(Sample, "V_rep") ~ "V",
+                           str_detect(Sample, "P_rep") ~ "P"),
+         Station = paste(Station, V_o_P, sep = "_"),
+         Region = case_when(str_detect(Sample, "Ri") ~ "Ri",
+                            str_detect(Sample, "Urr")~ "Urr" )) %>% 
+  separate(Biol.rep, into = "Biol.rep", sep = 1) %>%
+  select(Sample,Tube,Station,Biol.rep,rep,V_o_P,Region,Hash,nReads) %>%
+  filter(Tube!="Posctrl")
+
+write.csv(ASV.after.vsearch,here("Outputs/good_output/ASV_hashes_samples.csv"),row.names = FALSE)
+
+
+
+
+
+classified.hashes <- read.csv(here("Outputs/good_output/hash_id_2023-10-06_ACL.csv")) %>% 
+  mutate(taxa=paste(kingdom,phylum,class,order,family,genus,species, sep="%", remove=T)) %>% 
+  select(Hash,taxa)
+
+
+ASV.after.vsearch.unassigned <- anti_join(ASV.after.vsearch,classified.hashes) %>% 
+  mutate(sample = str_replace(sample, "Pos_ctrl", "Posctrl")) %>% 
+  separate(., sample, into = c("s1", "s2", "s3", "s4"), sep = "_") %>%
+  mutate(Sample = paste(s1, s2, sep = "_")) %>%
+  select(-s1, -s2, -s3, -s4) %>%
+  select(Sample,Hash,nReads) %>%
+  group_by(Sample, Hash) %>%
+  summarise(nReads = sum(nReads)) %>%
+  separate(Sample, into = c("Tube", "rep"), sep = "_rep", remove = F) %>%
+  separate(Tube, into = c("Station", "Biol.rep"), sep = "\\.", remove = F) %>%
+  mutate(V_o_P = case_when(str_detect(Sample, "V_rep") ~ "V",
+                           str_detect(Sample, "P_rep") ~ "P"),
+         Station = paste(Station, V_o_P, sep = "_"),
+         Region = case_when(str_detect(Sample, "Ri") ~ "Ri",
+                            str_detect(Sample, "Urr")~ "Urr" )) %>% 
+  separate(Biol.rep, into = "Biol.rep", sep = 1) %>%
+  select(Sample,Tube,Station,Biol.rep,rep,V_o_P,Region,Hash,nReads)
+
+
+
+```
+
+
+
+(5) **Vamos a ver los hashes que no han sido clasificados finalmente, para tener las secuencias**
+
+```{r}
+
+#Cargamos los ASV finales y nos quedamos con el hash y la abundancia total, sin distingui por muestra
+
+ASV.classified <- read.csv(here("Outputs/good_output/ASV_tables/ASV_table_samples_classified.csv"))
+
+hashes.ASV.classified <- read.csv(here("Outputs/good_output/ASV_tables/ASV_table_samples_classified.csv"))%>%
+  group_by(Hash) %>%
+  summarise(nReads = sum(nReads)) %>%
+  arrange(desc(nReads))
+
+ASV.vsearch <- read.csv(here("Outputs/good_output/ASV_tables/ASV_table_samples.csv"))
+
+hashes.ASV.vsearch <- read.csv(here("Outputs/good_output/ASV_tables/ASV_table_samples.csv"))%>%
+  group_by(Hash) %>%
+  summarise(nReads = sum(nReads)) %>%
+  arrange(desc(nReads))
+
+Unassigned.hashes <- anti_join(hashes.ASV.vsearch,hashes.ASV.classified) %>% 
+  select(Hash)
+
+Tabla.solo.no.assign <- semi_join(ASV.vsearch,Unassigned.hashes)
+
+
+ocurrecia.hashes <- Tabla.solo.no.assign %>% 
+  group_by(Hash) %>% 
+  summarise(nReads = sum(nReads), nsamples = n())
+
+write.csv(ocurrecia.hashes,here("Outputs/good_output/No_assign/ocurrencia_hashes.csv"), row.names = FALSE)
+
+ggplot(ocurrecia.hashes, aes(x = nsamples, y = nReads)) +
+  geom_point() +
+  labs(x = "Number of samples", y = "Number of reads") +
+  scale_x_continuous(breaks = seq(0, max(ocurrecia.hashes$nsamples), by = 10))
+
+
+#Queremos extraer un fasta co las secuenicas que no han sido clasificadas
+
+secuencias.bold <- readDNAStringSet(here("Outputs/good_output/hashes_after_vsearch.fasta"))
+names.bold <- names(secuencias.bold)
+names.bold <- data.frame(names.bold)
+
+names.unassigned <- ocurrecia.hashes %>% 
+  arrange(desc(nReads)) %>% 
+  select(Hash)
+names.unassigned <- unlist(names.unassigned)
+
+secuencias.after.vsearch <- readDNAStringSet(here("Outputs/good_output/hashes_after_vsearch.fasta"))
+secuencias.unnasigned <- secuencias.after.vsearch[names.unassigned]
+writeXStringSet(secuencias.unnasigned, file = here("Outputs/good_output/unnasigned.fasta"), format = "fasta")
+```
+
+
+(6) **Vamos a ver cuales son las secuenicas de los difernetes host, para asi, poder eliminarlos**
+
+```{r}
+
+library(paletteer)
+
+ASV.after.vsearch <- read.csv(here("Outputs/good_output/ASV_hashes_samples.csv"))
+classified.hashes <- read.csv(here("Outputs/good_output/hash_id_2023-10-06_ACL.csv")) %>% 
+  filter(kingdom=="Metazoa")
+ASV.after.vsearch.classified <- ASV.after.vsearch %>% 
+  inner_join(classified.hashes) %>% 
+  filter(class=="Demospongiae")
+  
+mi_paleta <- paletteer_d("ggsci::pink_material", 30)
+
+ggplot(ASV.after.vsearch.classified, aes(x = Sample, y = nReads, fill = Hash)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = mi_paleta) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 6))+
+  theme(legend.position = "none")
+
+host.each <- ASV.after.vsearch.classified %>% 
+  group_by(Sample) %>% 
+  top_n(1, wt = nReads)
+
+#Eliminamos el host de cada muestra
+
+ASV.after.vsearch <- read.csv(here("Outputs/good_output/ASV_hashes_samples.csv"))
+
+tabla.de.asv.1 <- ASV.after.vsearch %>%
+  filter(Tube=="Ri2.2P") %>%
+  subset(Hash != "361bcc3683c5758710e3d55af1be7b35bc73a2f7")
+
+tabla.de.asv.2 <- ASV.after.vsearch %>%
+  filter(Region=="Ri") %>%
+  subset(Tube != "Ri2.2P") %>%
+  subset(Hash != "45e4b39706bd1a31b7ca4ec54e548bb9112f6f5d")
+
+tabla.de.asv.3 <- ASV.after.vsearch %>%
+  filter(Region=="Urr") %>%
+  subset(Hash != "7a781ee06cb041eb1b7660badc1098ffcb35bec4")
+
+tabla.asv.without.host <- rbind(tabla.de.asv.1,tabla.de.asv.2,tabla.de.asv.3)
+classified.hashes <- read.csv(here("Outputs/good_output/hash_id_2023-10-06_ACL.csv"))
+
+tabla.asv.without.host <- tabla.asv.without.host %>% 
+  inner_join(classified.hashes)
+
+write.csv(tabla.asv.without.host, here("Outputs/good_output/ASV_table_nonhost.csv"))
+  
+ggsave(here("Outputs/good_output/figuras/hostplot.pdf"), plot = mi_ggplot)
+
+```
+
+```{r}
+
+
+host <- head(ASV.after.swarm.classified, n = 5)
+host <- ASV.after.swarm.classified %>%
+  filter(family=="Chalinidae") %>%
+  mutate(genus_species = paste(genus, species, Hash, sep = ";"))
+
+explorar.host <- left_join(tabla_buena,host, by="Hash") %>%
+  select(-nReads.y) %>%
+  filter(kingdom=="Metazoa") %>%
+  right_join(metadata, by = "sample")
+
+aa <- explorar.host %>%
+  filter(Hash=="9cd23b33bf39e905153faf164c521b05128bf783")  
+
+
+
+
+
+#Vamos a eliminar el Host de las diferentes muestras y luego a unirlas todas en una tabla. Tenemos tres diferentes host y por lo tanto tenemos que eliminar cada host unicamente de su subsample
+
+tabla.de.asv.1 <- tabla.de.asv %>%
+  filter(Tube=="Ri2.2P") %>%
+  subset(Hash != "361bcc3683c5758710e3d55af1be7b35bc73a2f7")
+
+tabla.de.asv.2 <- tabla.de.asv %>%
+  filter(Region=="Ri") %>%
+  subset(Tube != "Ri2.2P") %>%
+  subset(Hash != "45e4b39706bd1a31b7ca4ec54e548bb9112f6f5d")
+
+tabla.de.asv.3 <- tabla.de.asv %>%
+  filter(Region=="Urr") %>%
+  subset(Hash != "7a781ee06cb041eb1b7660badc1098ffcb35bec4")
+
+tabla.asv.without.host <- rbind(tabla.de.asv.1,tabla.de.asv.2,tabla.de.asv.3)
+
+
+#Queremos comparar las diferentes especies que nos aparecen en los diferentes sitios. Primero esto es para explorar de visu. Empezamos a ver entre las dos regiones (1), luego entre estaciones dentro de cada region (2).
+
+#(1)
+sp.ri <- tabla.asv.without.host %>%
+  mutate(genus_species = paste(genus, species, sep = ";")) %>%
+  filter(Region=="Ri") %>%
+  aggregate(nReads ~ genus_species,sum) %>%
+  arrange(desc(nReads)) %>%
+  dplyr::rename(nReads.ri=nReads)
+sp.urr <- tabla.asv.without.host %>%
+  mutate(genus_species = paste(genus, species, sep = ";")) %>%
+  filter(Region=="Urr") %>%
+  aggregate(nReads ~ genus_species,sum) %>%
+  arrange(desc(nReads)) %>%
+  dplyr::rename(nReads.urr=nReads)
+
+sp.all.regions <- full_join(sp.ri, sp.urr)
+sp.shared.regions <- inner_join(sp.ri, sp.urr)
+sp.only.ri <- anti_join(sp.ri, sp.urr)
+sp.only.urr <- anti_join(sp.ri, sp.urr)
+
+ggplot(data = sp.all.regions, aes(x = genus_species)) +
+  geom_bar(aes(y = nReads.ri), stat = "identity", fill = "blue", position = "dodge") +
+  geom_bar(aes(y = nReads.urr), stat = "identity", fill = "red", position = "dodge") +
+  labs(title = "Gráfico de barras de Ri y Ur por especie",
+       y = "Número",
+       x = "Especie") +
+  theme_minimal() +
+  scale_fill_manual(values = c("blue", "red")) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+
+
+
+
+
+#Filtramos por la Region para obtener que especies hay y el numeor de las mismas (Ri en Verano)
+sp.Ri.V <- tabla.asv.without.host %>%
+  mutate(genus_species = paste(genus, species, sep = ";")) %>%
+  filter(Region=="Ri" & V_o_P=="V") %>%
+  aggregate(nReads ~ genus_species,sum) %>%
+  arrange(desc(nReads)) %>%
+  dplyr::rename(nReads.V=nReads)
+
+#Filtramos por la Region para obtener que especies hay y el numeor de las mismas (Ri en Primavera)
+sp.Ri.P <- tabla.asv.without.host %>%
+  mutate(genus_species = paste(genus, species, sep = ";")) %>%
+  filter(Region=="Ri" & V_o_P=="P") %>%
+  aggregate(nReads ~ genus_species,sum) %>%
+  arrange(desc(nReads)) %>%
+  dplyr::rename(nReads.P=nReads)
+  
+#Comparamos las dos estaciones, primero, cuales se comparten, cuales aparecen solo en primaver ay cuales solo en vernao
+sp.shared.ri.season <- inner_join(sp.Ri.V, sp.Ri.P)
+sp.only.ri.P <- anti_join(sp.Ri.V, sp.Ri.P)
+sp.only.ri.V <- anti_join(sp.Ri.P, sp.Ri.V)
+
+
+```
+
+```{r}
+
+#(1)**Quiero una tabla que sea eje y proporcion de lecturas obtenidas para las diferentes especies de poriferos y en el eje x las muestras por tubo, ordenadas alfabeticamente
+
+
+#Voy a crear un subset para porifera
+Poriferos <- subset(tabla.de.asv, phylum == "Porifera")
+Poriferos$genus_species <- paste(Poriferos$genus, Poriferos$species, sep = ";")
+
+#Calcular la suma de nReads por Tubo y species
+grouped_asv <- tabla.asv.without.host %>%
+  group_by(sample_id, phylum) %>%
+  summarize(total_reads = sum(nReads))
+
+#Calcular la proporción de nReads para cada especie en cada Tubo
+grouped_asv <- grouped_asv %>%
+  group_by(sample_id) %>%
+  mutate(proporcion = total_reads / sum(total_reads))
+
+
+#Crear una tabla con proporciones por Tubo, ordenadas alfabéticamente
+
+ggplot(grouped_asv, aes(x = sample_id, y = proporcion, fill = phylum)) +
+  geom_bar(stat = "identity", position = "stack") +
+  labs(x = "Samples", y = "nReads") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 6)) +
+  scale_fill_discrete(name = "phylum")
+
+
+#Numeor de lecturas:
+
+nReads.by.sample <- aggregate(nReads ~ sample_id, data = tabla.asv.without.host, FUN = sum)
+ggplot(data = nReads.by.sample, aes(x = sample_id, y = nReads)) +
+  geom_bar(stat = "identity", fill = "blue") +
+  labs(x = "Sample", y = "Reads") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 6))
+  ggtitle("Number of reads by sample")
+
+
+
+```
+
+
+()**Vamos a hacer las lecturas relativas**
+```{r}
+ASV_table_samples_metazoa_without_pos_host <- read.csv(here("Outputs/good_output/ASV_tables/ASV_table_samples_metazoa_without_pos_host.csv")) %>% 
+  group_by(Sample) %>% 
+  mutate(reads_by_sample = sum(nReads)) %>% 
+  ungroup() %>% 
+  group_by(Sample,assign) %>% 
+  mutate(reads_by_each = sum(nReads)) %>%
+  ungroup() %>%
+  mutate(per_nReads = ((reads_by_each *100)/reads_by_sample)) %>% 
+  select(-reads_by_sample, -reads_by_each)
+  
+ASV_table_samples_metazoa_without_pos_host <- read.csv(here("Outputs/good_output/ASV_tables/ASV_table_samples_metazoa_without_pos_host.csv")) %>% 
+  group_by(Sample, assign) %>% 
+  mutate(new = n())
+
+
+colnames(ASV_table_samples_metazoa_without_pos_host)
+
+ASV_table_samples_metazoa_without_pos_host <- read.csv(here("Outputs/good_output/ASV_tables/ASV_table_samples_metazoa_without_pos_host.csv")) %>% 
+  group_by(Sample,Tube,Station,Biol.rep,rep,V_o_P,Region,kingdom,phylum,class,order,family,genus,species,assign) %>% 
+  summarize(nReads =sum(nReads)) %>% 
+  group_by(Sample) %>% 
+  mutate(reads_by_sample = sum(nReads)) %>% 
+  ungroup() %>% 
+  group_by(Sample,assign) %>% 
+  mutate(reads_by_each = sum(nReads)) %>%
+  ungroup() %>%
+  mutate(per_nReads = ((reads_by_each *100)/reads_by_sample)) %>% 
+  select(-reads_by_sample, -reads_by_each) %>% 
+  write.csv(here("Outputs/good_output/ASV_tables/ASV_table_samples_metazoa_without_pos_host_percentage.csv"))
+
+ASV_table_samples_metazoa_without_pos_host <- read.csv(here("Outputs/good_output/ASV_tables/ASV_table_samples_metazoa_without_pos_host.csv")) %>% 
+  group_by(Tube,V_o_P,Region,kingdom,phylum,class,order,family,genus,species,assign) %>% 
+  dplyr::summarize(nReads =sum(nReads)) %>% 
+  group_by(Tube) %>% 
+  mutate(reads_by_sample = sum(nReads)) %>% 
+  ungroup() %>% 
+  group_by(Tube,assign) %>% 
+  mutate(reads_by_each = sum(nReads)) %>%
+  ungroup() %>%
+  mutate(per_nReads = ((reads_by_each *100)/reads_by_sample)) %>% 
+  dplyr::select(-reads_by_sample, -reads_by_each) %>%
+  mutate(assign = gsub("\\(species\\)", "", assign),
+         assign = gsub("\\(genus\\)", "sp.", assign)) %>% 
+  write.csv(here("Outputs/good_output/ASV_tables/ASV_table_samples_metazoa_without_pos_host_percentage.csv"))
+```
+
+
+```{r}
+ASV_table_samples_metazoa_without_pos_host <- read.csv(here("Outputs/good_output/ASV_tables/ASV_table_samples_metazoa_without_pos_host.csv")) %>% 
+  filter(!is.na(species)) %>% 
+  group_by(Sample,Tube,Station,Biol.rep,rep,V_o_P,Region,kingdom,phylum,class,order,family,genus,species) %>% 
+  summarize(nReads =sum(nReads)) %>% 
+  group_by(Sample) %>% 
+  mutate(reads_by_sample = sum(nReads)) %>% 
+  ungroup() %>% 
+  group_by(Sample,species) %>% 
+  mutate(reads_by_each = sum(nReads)) %>%
+  ungroup() %>%
+  mutate(per_nReads = ((reads_by_each *100)/reads_by_sample)) %>% 
+  select(-reads_by_sample, -reads_by_each) %>% 
+  write.csv(here("Outputs/good_output/ASV_tables/ASV_table_samples_metazoa_without_pos_host_percentage_only_species.csv"))
+```
+
+
+```{r}
+
+ASV_table_samples_metazoa_without_pos_host <- read.csv(here("Outputs/good_output/ASV_tables/ASV_table_samples_metazoa_without_pos_host.csv")) %>% 
+  filter(grepl("(species)|(genus)", assign, ignore.case = TRUE)) %>% 
+  group_by(Sample,Tube,Station,Biol.rep,rep,V_o_P,Region,kingdom,phylum,class,order,family,genus,species) %>% 
+  summarize(nReads =sum(nReads)) %>% 
+  group_by(Sample) %>% 
+  mutate(reads_by_sample = sum(nReads)) %>% 
+  ungroup() %>% 
+  group_by(Sample,species) %>% 
+  mutate(reads_by_each = sum(nReads)) %>%
+  ungroup() %>%
+  mutate(per_nReads = ((reads_by_each *100)/reads_by_sample)) %>% 
+  select(-reads_by_sample, -reads_by_each) %>% 
+  write.csv(here("Outputs/good_output/ASV_tables/ASV_table_samples_metazoa_without_pos_host_percentage_only_species.csv"))
+```
+
+
+(XX)**Voy a hacer un grafico con las lecturas obtenidas para cada region en las estaciones de primavera y verano**
+
+```{r}
+
+
+#############
+#           #
+# LA RIBERA #
+#           #
+#############
+
+
+#Cargo el archivo donde tengo mis asignaciones y con el parentesis final que me dice hasta que rango ha sido clasificado. Si es especie borro el parentesisi y si es genero cambio el parentesis por sp.
+
+ASV <-read.csv(here("Outputs/good_output/New_70_90/ASV_table_samples_metazoa_without_pos_host_modified3.csv"))
+
+
+#Para que la grafica quede en orden descendente por presencia en las cuatro localidades de muestreo y por abundancia de lecturas vamos a calcular estos dos parametros y luego manualmente añadiremos la lista de especies como un factor para que en la grafica queden ordenados
+
+ASV_bad <- ASV %>% 
+  mutate(loc = case_when(
+    str_detect(Station, "Ri") ~ "Ri",
+    str_detect(Station, "Urr") ~ "Ur",
+    TRUE ~ NA_character_
+  )) %>% 
+  filter(loc == "Ri") %>% ##############Cambiar aqui una loc por la otra
+  group_by(Station,loc,assign) %>% 
+  dplyr::summarize(nReads=sum(nReads)) %>% 
+  mutate(assign = gsub("\\(species\\)", "", assign),
+         assign = gsub("\\(genus\\)", "sp.", assign)) %>%
+  pivot_wider(names_from = Station, values_from = nReads, values_fill = 0) %>% 
+  mutate(ocurrencia = rowSums(across(starts_with("Ri"), .fns = ~ . > 0))) %>% ##############Cambiar aqui una loc por la otra
+  arrange(desc(ocurrencia))
+
+ASV_bad$suma <- rowSums(ASV_bad[c("Ri1_P","Ri2_P","Ri1_V","Ri2_V")]) ##############Cambiar aqui una loc por la otra
+
+orden <- ASV_bad %>%
+  arrange(desc(suma)) %>% 
+  arrange(desc(ocurrencia)) %>% 
+  select(assign)
+orden <- orden[, -1]
+orden <- as.list(orden)
+
+cadena_formateada <- paste0('"', unlist(orden), '"', collapse = ", ")
+cat(cadena_formateada)
+
+#Copio lo que me sale en la pantalla en el siguiente script
+
+ASV_var <- ASV %>% 
+  mutate(loc = case_when(
+    str_detect(Station, "Ri") ~ "Ri",
+    str_detect(Station, "Urr") ~ "Ur",
+    TRUE ~ NA_character_
+  )) %>% 
+  filter(loc == "Ri") %>% ##############Cambiar aqui una loc por la otra
+  group_by(Station,loc,assign) %>% 
+  dplyr::summarize(nReads=sum(nReads)) %>% 
+  mutate(assign = gsub("\\(species\\)", "", assign),
+         assign = gsub("\\(genus\\)", "sp.", assign)) %>% 
+  mutate(assign=factor(assign,levels = c("Haplosyllis sp.", "Haliclona aff. aquaeductus ", "Exaiptasia diaphana ", "Branchiomma boholense ", "Terebella lapidaria ", "Halisarca sp.", "Halichondria bowerbanki ", "Mytilaster minimus ", "Mytilaster solidus ", "Branchiomma bairdi ", "Cirriformia sp.", "Haliclona elegans ", "Bittium reticulatum ", "Pione velans ", "Amathia verticillata ", "Chalinidae (family)", "Mycale fibrexilis ", "Salaria pavo ", "Haliclona cinerea ", "Polititapes aureus ", "Alitta sp.", "Cladonema sp.", "Bittium sp.", "Hydroides dianthus ", "Loripes lacteus ", "Hydroides elegans ", "Actiniaria (order)", "Phylo foetida ", "Homo sapiens ", "Holothuria poli ", "Botrylloides sp.", "Kirchenpaueria sp.", "Cirrophorus nikebianchii ", "Cirrophorus sp.", "Haliclona mediterranea ", "Isozoanthus sulcatus ", "Amphibalanus amphitrite ", "Campanularia hincksii ", "Styela canopus ", "Suberites sp.", "Ostrea sp.", "Scionides reticulata ", "Halichondriidae (family)", "Rissoa sp.", "Capitellidae (family)", "Syllis gracilis ", "Clionaidae (family)", "Abra alba ", "Gammaridae (family)", "Malacoceros sp.", "Anemonia sp.", "Gregariella semigranata ", "Protosuberites denhartogi ", "Syngnathus sp.", "Aequorea sp.", "Schizoporella sp.", "Chelon sp.", "Ecteinascidia turbinata "))) ##############Cambiar aqui la lista de especies
+
+
+color <- c('#358787','#f9b713','#73c7c8','#fcdc8c')
+
+ASV_var %>% 
+  ggplot() +
+  geom_bar(mapping = aes(x = assign, y = nReads, fill = Station), 
+           stat = "identity", position = position_dodge2(preserve = "single")) +
+  scale_fill_manual(values = color)+
+  #labs(title = paste("LA RIBERA"), 
+  #     y = "Abundance of reads (logarithmic scale)",
+  #     x = ""
+  #) +
+  scale_y_log10()+
+  #theme(legend.position = "none")+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) -> Ribera
+  
+ggsave(here("Outputs/good_output/figuras/log_ribera.pdf"), plot = Ribera, width = 15, height = 5)
+
+################
+#              #
+# LOS URRUTIAS #
+#              #
+################
+
+
+#Cargo el archivo donde tengo mis asignaciones y con el parentesis final que me dice hasta que rango ha sido clasificado. Si es especie borro el parentesisi y si es genero cambio el parentesis por sp.
+
+ASV <-read.csv(here("Outputs/good_output/New_70_90/ASV_table_samples_metazoa_without_pos_host_modified3.csv"))
+
+
+#Para que la grafica quede en orden descendente por presencia en las cuatro localidades de muestreo y por abundancia de lecturas vamos a calcular estos dos parametros y luego manualmente añadiremos la lista de especies como un factor para que en la grafica queden ordenados
+
+ASV_bad <- ASV %>% 
+  mutate(loc = case_when(
+    str_detect(Station, "Ri") ~ "Ri",
+    str_detect(Station, "Urr") ~ "Ur",
+    TRUE ~ NA_character_
+  )) %>% 
+  filter(loc == "Ur") %>% ##############Cambiar aqui una loc por la otra
+  group_by(Station,loc,assign) %>% 
+  dplyr::summarize(nReads=sum(nReads)) %>% 
+  mutate(assign = gsub("\\(species\\)", "", assign),
+         assign = gsub("\\(genus\\)", "sp.", assign)) %>%
+  pivot_wider(names_from = Station, values_from = nReads, values_fill = 0) %>% 
+  mutate(ocurrencia = rowSums(across(starts_with("Ur"), .fns = ~ . > 0))) %>% ##############Cambiar aqui una loc por la otra
+  arrange(desc(ocurrencia))
+
+ASV_bad$suma <- rowSums(ASV_bad[c("Urr1_P","Urr1_V","Urr2_P","Urr2_V")]) ##############Cambiar aqui una loc por la otra
+
+orden <- ASV_bad %>%
+  arrange(desc(suma)) %>% 
+  arrange(desc(ocurrencia)) %>% 
+  select(assign)
+orden <- orden[, -1]
+orden <- as.list(orden)
+
+cadena_formateada <- paste0('"', unlist(orden), '"', collapse = ", ")
+cat(cadena_formateada)
+
+#Copio lo que me sale en la pantalla en el siguiente script
+
+ASV_var <- ASV %>% 
+  mutate(loc = case_when(
+    str_detect(Station, "Ri") ~ "Ri",
+    str_detect(Station, "Urr") ~ "Ur",
+    TRUE ~ NA_character_
+  )) %>% 
+  filter(loc == "Ur") %>% ##############Cambiar aqui una loc por la otra
+  group_by(Station,loc,assign) %>% 
+  dplyr::summarize(nReads=sum(nReads)) %>% 
+  mutate(assign = gsub("\\(species\\)", "", assign),
+         assign = gsub("\\(genus\\)", "sp.", assign)) %>% 
+  mutate(assign=factor(assign,levels = c("Kirchenpaueria sp.", "Branchiomma boholense ", "Terebella lapidaria ", "Halichondria bowerbanki ", "Exaiptasia diaphana ", "Bittium reticulatum ", "Salaria pavo ", "Gammaridae (family)", "Hydroides elegans ", "Polititapes aureus ", "Haliclona xena ", "Leptothecata (order)", "Halisarca sp.", "Hydroides dianthus ", "Botrylloides sp.", "Isozoanthus sulcatus ", "Mycale fibrexilis ", "Homo sapiens ", "Clytia gracilis ", "Amathia sp.", "Rhizostoma pulmo ", "Dysidea sp.", "Amathia verticillata ", "Mytilaster solidus ", "Mytilaster minimus ", "Mugil cephalus ", "Alitta sp.", "Ecteinascidia turbinata ", "Bittium sp.", "Ostrea sp.", "Loripes lacteus ", "Pholas dactylus ", "Actiniaria (order)", "Urodasys sp.", "Bougainvillia sp.", "Haliclona sp.", "Sparus aurata ", "Haminoea orbignyana ", "Dicentrarchus labrax ", "Gregariella semigranata ", "Eumida langenecki ", "Sus scrofa ", "Anemonia sp.", "Amphibalanus amphitrite ", "Cirriformia sp.", "Haliclona cinerea ", "Spongillida (order)"))) ##############Cambiar aqui la lista de especies
+
+
+color <- c('#72B874','#EB75A5','#C6DBB8','#FBE3ED')
+
+ASV_var %>% 
+  ggplot() +
+  geom_bar(mapping = aes(x = assign, y = nReads, fill = Station), 
+           stat = "identity", position = position_dodge2(preserve = "single")) +
+  scale_fill_manual(values = color)+
+#  labs(title = paste("LOS URRUTIAS"), 
+#       y = "Abundance of reads (logarithmic scale)",
+#       x = ""
+#  ) +
+  scale_y_log10()+
+  #theme(legend.position = "none")+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) -> urrutias
+
+ggsave(here("Outputs/good_output/figuras/log_urrutias.pdf"), plot = urrutias, width = 15, height = 5)
+
+```
+
+
+```{r}
+
+#########################################
+#                                       #
+#   LECTURAS POR ESTACION Y LOCALIDAD   #
+#                                       #
+#########################################
+
+ASV <-read.csv(here("Outputs/good_output/ASV_tables/ASV_table_samples_metazoa_without_pos_host.csv"))
+
+ASV_sum <- ASV %>% 
+  group_by(Station, Tube) %>% 
+  dplyr::summarise(sum(nReads))%>% 
+  mutate(Station=factor(Station,levels = c("Ri1_P","Ri2_P","Ri1_V","Ri2_V","Urr1_P","Urr2_P","Urr1_V","Urr2_V"))) %>%   mutate(Tube=factor(Tube,levels = c("Ri1.1P","Ri1.2P","Ri1.3P","Ri1.4P","Ri1.1V","Ri1.2V","Ri1.3V","Ri1.4V","Ri2.1P","Ri2.2P","Ri2.3P","Ri2.4P","Ri2.1V","Ri2.2V","Ri2.3V","Ri2.4V","Urr1.1P","Urr1.2P","Urr1.3P","Urr1.4P","Urr1.1V","Urr1.2V","Urr1.3V","Urr1.4V","Urr2.1P","Urr2.2P","Urr2.3P","Urr2.4P","Urr2.1V","Urr2.2V","Urr2.3V","Urr2.4V")))
+  
+ASV_sum$nReads <- ASV_sum$"sum(nReads)"
+ASV_sum <- ASV_sum[, -3]
+
+color <- c('#8dd3c7','#ffffb3','#bebada','#fb8072','#8dd3c7','#ffffb3','#bebada','#fb8072','#8dd3c7','#ffffb3','#bebada','#fb8072','#8dd3c7','#ffffb3','#bebada','#fb8072','#8dd3c7','#ffffb3','#bebada','#fb8072','#8dd3c7','#ffffb3','#bebada','#fb8072','#8dd3c7','#ffffb3','#bebada','#fb8072','#8dd3c7','#ffffb3','#bebada','#fb8072')
+
+ASV_sum %>% 
+  ggplot() +
+  geom_bar(mapping = aes(x = Station, y = nReads, fill = Tube ), 
+           stat = "identity", position = "stack") +
+  scale_fill_manual(values = color)+
+  labs(y = "Abundance of reads",
+       x = ""
+  ) +
+#  theme(legend.position = "none")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+```
+
+```{r}
+
+
+#######################################
+#                                     #
+#   ¿HAY DIFERENCIAS EN LAS MEDIAS?   #
+#                                     #
+#######################################
+
+
+# 1.1. Vamos a hacer una grafica de caja con bigotes para ambas medias
+
+ASV_kruskal <- ASV_sum %>% 
+  mutate(Loc = case_when(
+    str_detect(Station, "Ri") ~ "Ri",
+    str_detect(Station, "Urr") ~ "Ur",
+    TRUE ~ NA_character_
+  )) %>%
+  mutate(Season = case_when(
+    str_detect(Station, "_P") ~ "Spring",
+    str_detect(Station, "_V") ~ "Summer",
+    TRUE ~ NA_character_
+  )) %>% 
+  select(Loc,Season,Station,Tube,nReads)
+
+#Ploteamos el histograma a ver como es la distribucion
+
+ggplot(data = ASV_kruskal, aes(x = nReads)) +
+  geom_histogram(binwidth = 1000, position = "dodge") +
+  labs(x = "Number of Reads", y = "Frequency") +
+  scale_fill_discrete(name = "Station") +
+  theme_minimal()
+
+
+ASV_kruskal <- ASV_kruskal %>% 
+  mutate(lognReads = log(nReads)) %>% 
+  mutate(sqrtnReads = sqrt(nReads))
+
+
+ggplot(data = ASV_kruskal, aes(x = lognReads)) +
+  geom_histogram(binwidth = 1000, position = "dodge") +
+  labs(x = "Number of Reads", y = "Frequency") +
+  scale_fill_discrete(name = "Station") +
+  theme_minimal()
+
+
+# 1.2. Nuestros datos siguen una distribucion normal?, Si es significativo es que NO sigue una distribucion normal
+
+
+resultado_shapiro <- shapiro.test(ASV_sum$nReads) 
+resultado_shapiro <- shapiro.test(ASV_kruskal$lognReads[ASV_kruskal$Loc == "Ur"]) #No es significativo por lo que ya sigue una distribucion normal
+resultado_shapiro <- shapiro.test(ASV_kruskal$sqrtnReads[ASV_kruskal$Loc == "Ur"])
+
+
+bartlett.test( lognReads$ASV_kruskal )
+
+# 1.3. Comparamos medias a traves del test de Wilcoxon
+
+wilcox.test(lognReads ~ Loc, data=ASV_kruskal) # SI hay diferencias significativas entre localidades
+wilcox.test(lognReads ~ Season, data=ASV_kruskal) # NO hay diferneicas significativas entre estaciones
+
+# 1.4. ¿Y entre la interaccion de estacion y localidad?
+
+ASV_kruskal <- ASV_kruskal %>% 
+  mutate(kruskal = paste(Loc,Season,sep="_"))
+
+aggregate(lognReads ~ kruskal, data = ASV_kruskal, FUN = median)
+aggregate(lognReads ~ kruskal, data = ASV_kruskal, FUN = sd)
+
+ggplot(data = ASV_kruskal, mapping = aes(x = kruskal, y = nReads, colour = kruskal)) +
+    geom_boxplot() +
+    theme_bw() +
+    theme(legend.position = "none")
+
+ggsave(here("Outputs/good_output/figuras/bubble_plot.pdf"), plot = mi_ggplot)
+
+ggplot(data = ASV_kruskal, mapping = aes(x = lognReads, colour = kruskal)) +
+    geom_histogram() +
+    theme_bw() +
+    facet_grid(. ~ kruskal) +
+    theme(legend.position = "none")
+
+library(car)
+leveneTest(sqrtnReads ~ kruskal, data = ASV_kruskal, center = "median")
+
+kruskal.test(sqrtnReads ~ kruskal, data = ASV_kruskal)
+
+pairwise.wilcox.test(x = ASV_kruskal$lognReads, g = ASV_kruskal$kruskal, p.adjust.method = "holm" )
+
+```
+
+```{r}
+
+table.ASV <- read.csv(here("Outputs/good_output/New_70_90/ASV_table_samples_metazoa_without_pos_host.csv"))
+table.ASV <- table.ASV %>% group_by(Tube,Hash) %>% mutate(count = n()) %>% summarise(Tube,Hash,count) %>% unique() 
+ggplot(table.ASV, aes(x = factor(count))) +
+  geom_bar() +
+  labs(title = "Distribución de valores en la tabla hash",
+       x = "Valor",
+       y = "Cantidad")  
+                                                                                              
+
+```
+
+```{r}
+
+ASV <-read.csv(here("Outputs/good_output/New_70_90/ASV_table_samples_metazoa_without_pos_host_modified.csv"))
+ASV_var <- ASV %>% 
+  group_by(Sample,assign) %>% 
+  summarise(nReads = sum (nReads)) %>% 
+  separate(Sample, into = c("Sample", "rep"), sep = "_") %>% 
+  group_by(Sample,assign) %>%
+  summarise(rep = n()) %>% 
+  group_by(rep) %>%
+  summarise(count = n()) %>%
+  filter(rep %in% c("1", "2", "3"))
+
+#	167 (1)
+# 71 (2)
+# 203 (3)
+
+ASV <-read.csv(here("Outputs/good_output/New_70_90/ASV_table_samples_metazoa_without_pos_host_modified.csv"))
+meta <- ASV %>% 
+  group_by(Tube,Station,Biol.rep) %>% 
+  summarise(nReads = sum (nReads)) %>% 
+  select(Tube,Station,Biol.rep)
+  
+ASV_var <- ASV %>% 
+  group_by(Tube,assign) %>% 
+  summarise(nReads = sum (nReads)) %>% 
+  left_join(meta) %>% 
+  group_by(Station,assign) %>%
+  summarise(rep = n()) %>% 
+  group_by(rep) %>%
+  summarise(count = n()) %>%
+  filter(rep %in% c("1", "2", "3", "4"))
+
+#	108 (1)
+# 47 (2)
+# 37 (3)
+# 32 (4)
+
+
+ASV <-read.csv(here("Outputs/good_output/New_70_90/ASV_table_samples_metazoa_without_pos_host_modified.csv"))
+meta <- ASV %>% 
+  group_by(Region,Station,V_o_P) %>% 
+  summarise(nReads = sum (nReads)) %>% 
+  select(Region,Station,V_o_P) %>% 
+  mutate(reg = paste(Region, V_o_P, sep="_"))
+  
+ASV_var <- ASV %>% 
+  group_by(Station,assign) %>% 
+  summarise(nReads = sum (nReads)) %>%
+  left_join(meta) %>% 
+  group_by(reg,assign) %>%
+  summarise(rep = n()) %>% 
+  group_by(rep) %>%
+  summarise(count = n()) %>%
+  filter(rep %in% c("1", "2"))
+
+# 84 (1)
+# 70 (2)
+
+ASV <-read.csv(here("Outputs/good_output/New_70_90/ASV_table_samples_metazoa_without_pos_host_modified.csv"))
+meta <- ASV %>% 
+  group_by(Region,Station,V_o_P) %>% 
+  summarise(nReads = sum (nReads)) %>% 
+  select(Region,Station,V_o_P) %>% 
+  mutate(reg = paste(Region, V_o_P, sep="_"))
+  
+ASV_var <- ASV %>% 
+  mutate(reg=paste(Region,V_o_P,sep="_")) %>% 
+  group_by(reg,assign) %>% 
+  summarise(nReads = sum (nReads)) %>%
+  separate(reg, into = c("Region", "V_o_P"), sep = "_") %>% 
+  group_by(V_o_P,assign) %>%
+  summarise(rep = n()) %>% 
+  group_by(rep) %>%
+  summarise(count = n()) %>%
+  filter(rep %in% c("1", "2"))
+
+# 72 (1)
+# 41 (2)
+
+ASV <-read.csv(here("Outputs/good_output/New_70_90/ASV_table_samples_metazoa_without_pos_host_modified.csv"))
+meta <- ASV %>% 
+  group_by(Region,Station,V_o_P) %>% 
+  summarise(nReads = sum (nReads)) %>% 
+  select(Region,Station,V_o_P) %>% 
+  mutate(reg = paste(Region, V_o_P, sep="_"))
+  
+ASV_var <- ASV %>% 
+  mutate(reg=paste(Region,V_o_P,sep="_")) %>% 
+  group_by(reg,assign) %>% 
+  summarise(nReads = sum (nReads)) %>%
+  separate(reg, into = c("Region", "V_o_P"), sep = "_") %>% 
+  group_by(Region,assign) %>%
+  summarise(rep = n()) %>% 
+  group_by(rep) %>%
+  summarise(count = n()) %>%
+  filter(rep %in% c("1", "2"))
+
+# 58 (1)
+# 48 (2)
+
+
+ASV <-read.csv(here("Outputs/good_output/New_70_90/ASV_table_samples_metazoa_without_pos_host_modified.csv"))
+meta <- ASV %>% 
+  group_by(Region,Station,V_o_P) %>% 
+  summarise(nReads = sum (nReads)) %>% 
+  select(Region,Station,V_o_P) %>% 
+  mutate(reg = paste(Region, V_o_P, sep="_"))
+  
+ASV_var <- ASV %>% 
+  mutate(reg=paste(Region,V_o_P,sep="_")) %>% 
+  group_by(V_o_P,assign) %>% 
+  summarise(nReads = sum (nReads)) %>%
+  mutate(Laguna = "Laguna") %>% 
+  group_by(Laguna,assign) %>%
+  summarise(count = n()) %>%
+  filter(count %in% c(1, 2)) %>%
+  group_by(count) %>%
+  summarise(n = n())
+
+
+```
+

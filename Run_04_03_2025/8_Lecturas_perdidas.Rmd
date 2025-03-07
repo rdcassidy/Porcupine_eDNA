@@ -1,0 +1,196 @@
+---
+title: "Perdida de lecturas"
+author: "Andrea Corral Lou"
+date: "2023-10-03"
+output: html_document
+---
+
+(1) **Cargamos laslibrerias necesarias**
+
+```{r}
+
+library(here)
+library(tidyverse)
+library(vegan)
+library(reshape2)
+library(dplyr)
+
+```
+
+(2) **Cargamos el archivo de la pipeline de cutadapt**
+
+```{r}
+
+summary.cutadapt <- read_csv(here("Outputs/demultiplexed_20231004_1930", "summary.csv")) 
+
+summary.cutadapt2 <-summary.cutadapt %>%
+  filter(!grepl("Star", name)) %>%
+  mutate(direccion=rep(c("F", "R"), length.out = n())) %>%
+  mutate(name = str_replace(fastq_header, "-round.*", "")) %>%
+  mutate(Sample_name = paste(name, direccion, sep = "_")) %>%
+  select(Sample_name,value,step) %>%
+  mutate(step = ifelse(step == "Second_trim", "First_trim", step))
+
+df_transformado <- summary.cutadapt2 %>%
+  pivot_wider(names_from = step, values_from = value) %>%
+  separate(Sample_name, into = c("Basename", "direction"), sep = "_", remove = F) %>%
+  dplyr::rename(name_match = Sample_name)
+
+
+names.barcode.sample <- read_csv(here("data/metadata_barcode_sample.csv")) %>%
+  select(3,1,2,4) %>% 
+  dplyr::rename(name_match = barcode_name_direction)
+
+table.lost.reads<- full_join(df_transformado,names.barcode.sample) %>% 
+  select(1,2,7,8,3,4,5)%>% 
+  dplyr::rename(namedirection = sample_name_direction)
+
+
+
+
+summary.dada2 <- read_csv(here("Outputs/demultiplexed_20231004_1930/dada2_summary_220.csv"))   
+
+summary.dada3 <- summary.dada2 %>%
+  filter(file !="0.1") %>% 
+  mutate(name2 = str_replace(sample, "1_filt.fastq.gz", "")) %>% 
+  mutate(name = str_replace(name2, "2_filt.fastq.gz", "")) %>%
+  select(name,value,Step) %>% 
+  pivot_wider(names_from = Step, values_from = value) %>%
+  select(name,Reads.in, Filtered, Denoised,Merged,Tabled, FUSION, ASV)%>% 
+  separate(ASV, into = c("ASV1", "ASV2"), sep = ",") %>% 
+  dplyr::rename(namedirection = name) %>% 
+  select(-ASV1) %>% 
+  dplyr::rename(ASV = ASV2)
+
+TABLE.LOST <- full_join(table.lost.reads, summary.dada3)
+
+
+
+```
+
+
+```{r}
+
+summary.swarm <- read_csv(here("Outputs/good_output/ASV_table_after_swarm.csv")) %>%
+  group_by(sample) %>%
+  summarize(nReads = sum(nReads)) %>%
+  mutate(sample = str_replace(sample, "1_filt.fastq.gz", "")) %>%
+  dplyr::rename(namedirection = sample) %>% 
+  dplyr::rename(after_swarm = nReads)
+
+TABLE.LOST <- full_join(TABLE.LOST, summary.swarm)
+  
+summary.vsearch <- read_csv(here("Outputs/good_output/ASV_table_after_vsearch.csv")) %>%
+  group_by(sample) %>%
+  summarize(nReads = sum(nReads)) %>%
+  mutate(sample = str_replace(sample, "1_filt.fastq.gz", "")) %>%
+  dplyr::rename(namedirection = sample) %>% 
+  dplyr::rename(after_vsearch = nReads)
+
+TABLE.LOST <- full_join(TABLE.LOST, summary.vsearch)
+
+```
+
+```{r}
+
+summary.species <- read_csv(here("Outputs/good_output/asv_table_classified_FR.csv")) %>%
+  group_by(name) %>%
+  summarize(nReads = sum(nReads)) %>%
+  dplyr::rename(namedirection = name) %>%
+  dplyr::rename(after_assign = nReads)
+
+TABLE.LOST <- full_join(TABLE.LOST, summary.species)
+
+
+summary.metazoa <- read_csv(here("Outputs/good_output/asv_table_metazoa_FR.csv")) %>%
+  group_by(name) %>%
+  summarize(nReads = sum(nReads)) %>%
+  dplyr::rename(namedirection = name) %>%
+  dplyr::rename(after_metazoa_assign = nReads)
+
+TABLE.LOST <- full_join(TABLE.LOST, summary.metazoa)
+
+TABLE.LOST %>% 
+  group_by(direction) %>% 
+  mutate(First_trim = as.numeric(First_trim)) %>%
+  mutate(PCR_primer = as.numeric(PCR_primer)) %>%
+  mutate(Reads.in = as.numeric(Reads.in)) %>%
+  mutate(Filtered = as.numeric(Filtered)) %>%
+  mutate(Denoised = as.numeric(Denoised)) %>%
+  mutate(Merged = as.numeric(Merged)) %>%
+  mutate(Tabled = as.numeric(Tabled)) %>%
+  mutate(FUSION = as.numeric(FUSION)) %>%
+  mutate(ASV = as.numeric(ASV)) %>%
+  mutate(after_swarm = as.numeric(after_swarm)) %>%
+  mutate(after_vsearch = as.numeric(after_vsearch)) %>%
+  mutate(after_assign = as.numeric(after_assign)) %>%
+  mutate(after_metazoa_assign = as.numeric(after_metazoa_assign)) -> TABLE.LOST
+
+******************write.csv()
+
+
+#Hacemos grafica por muestra
+
+bysample <- TABLE.LOST %>% 
+  select(c(4,6:18))%>%
+  gather(step, value,-namedirection)%>%
+  mutate(value = as.numeric(value))
+
+good.order <- c("First_trim","PCR_primer","Reads.in","Filtered","Denoised","Merged","Tabled","FUSION","ASV","after_swarm","after_vsearch","after_assign","after_metazoa")
+
+ggplot(bysample, aes(x = fct_relevel(step, good.order), y = value, group = namedirection, color = namedirection)) +
+  geom_line() +
+  labs(x = "Step", y = "Valor") +
+  scale_color_discrete(name = "Muestra") +
+  theme_minimal()+
+  guides(color="none")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+
+
+#Hacemos grafica general, uniendo F y R y en los diferentes pasos
+
+TABLE.LOST %>% 
+  group_by(direction) %>%
+  summarize(First_trim = sum(First_trim,na.rm=TRUE), 
+            PCR_primer=sum(PCR_primer,na.rm=TRUE),
+            Reads.in=sum(Reads.in,na.rm=TRUE),
+            Filtered=sum(Filtered,na.rm=TRUE),
+            Denoised=sum(Denoised,na.rm=TRUE),
+            Merged=sum(Merged,na.rm=TRUE),
+            Tabled=sum(Tabled,na.rm=TRUE),
+            FUSION=sum(FUSION,na.rm=TRUE),
+            ASV=sum(ASV,na.rm=TRUE),
+            after_swarm=sum(after_swarm,na.rm=TRUE),
+            after_vsearch=sum(after_vsearch,na.rm=TRUE),
+            after_assign=sum(after_assign,na.rm=TRUE),
+            after_metazoa_assign=sum(after_metazoa_assign,na.rm=TRUE)) -> new
+
+new %>% 
+  gather(step, value,-direction) -> new
+
+good.order <- c("First_trim","PCR_primer","Reads.in","Filtered","Denoised","Merged","Tabled","FUSION","ASV","after_swarm","after_vsearch","after_assign","after_metazoa_assign")
+
+
+new %>%
+  ggplot(aes(x = fct_relevel(step, good.order), y = value, fill = direction)) +
+  geom_col(position = "stack") +
+  scale_y_continuous(n.breaks = 15)+
+  labs(x = "step")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1))
+
+
+
+write.csv(TABLE.LOST,here("Outputs/good_output/table_lost.csv"), row.names = FALSE)
+write.csv(new,here("Outputs/good_output/table_lost_modified.csv"), row.names = FALSE)
+
+write.csv(kk,here("Cambiar/otu_good.csv"), row.names = FALSE)
+
+```
+
+```{r}
+
+pivot_wider(names_from = TABLE.LOST$namedirection, values_from = value)
+ggplot(aes(x= y=))
+
+```
+

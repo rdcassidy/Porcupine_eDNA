@@ -1,0 +1,371 @@
+---
+title: "Diversidad"
+author: "Andrea Corral Lou"
+date: "2023-09-20"
+output: html_document
+---
+
+```{r}
+install.packages("phyloseq")
+install.packages
+
+
+Para realizar análisis de diversidad alfa y beta, necesitas tener tus datos de metabarcoding en un formato adecuado. Por lo general, estos datos se organizan en una tabla de OTUs (Operational Taxonomic Units) o especies en filas y muestras en columnas. Además, necesitarás una matriz de distancia que describa las relaciones entre las muestras.
+
+Aquí hay un ejemplo de cómo preparar tus datos en un objeto phyloseq:
+
+R
+Copy code
+# Crear una tabla de OTUs (o especies) y una matriz de distancia (ejemplo)
+otu_table <- matrix(c(10, 15, 8, 12, 5, 7, 9, 6), nrow = 4)
+rownames(otu_table) <- c("Especie1", "Especie2", "Especie3", "Especie4")
+colnames(otu_table) <- c("Muestra1", "Muestra2")
+
+# Crear una matriz de distancia (ejemplo)
+dist_matrix <- dist(otu_table)
+dist_bc <- vegdist(otu_table, method = "bray")
+
+# Crear un objeto phyloseq
+ps <- phyloseq(otu_table, sample_data(data.frame(SampleName = colnames(otu_table))), tax_table = NULL, phy_tree = NULL, distance = dist_matrix)
+
+Análisis de Diversidad Alfa:
+
+Puedes calcular la diversidad alfa utilizando la función diversity() de la biblioteca phyloseq. Por ejemplo, para calcular la diversidad alfa de Shannon en tus muestras:
+
+R
+Copy code
+alpha_diversity <- diversity(ps, index = "shannon")
+Esto calculará la diversidad alfa de Shannon para cada muestra en tu objeto phyloseq.
+
+Análisis de Diversidad Beta:
+
+Puedes calcular la diversidad beta utilizando la función vegdist() para calcular una matriz de distancia entre muestras basada en tus datos de OTUs o especies:
+
+R
+Copy code
+beta_diversity <- vegdist(otu_table, method = "bray")
+Luego, puedes realizar análisis de ordenación (por ejemplo, Análisis de Componentes Principales, PCoA) para visualizar la diversidad beta:
+
+R
+Copy code
+ordination <- ordinate(ps, "PCoA", beta_diversity)
+Finalmente, puedes visualizar los resultados utilizando gráficos de dispersión y realizar pruebas estadísticas para determinar la significancia de las diferencias entre grupos de muestras.
+
+Este es un enfoque general para realizar análisis de diversidad alfa y beta en R utilizando phyloseq y vegan. Los detalles exactos pueden variar según tus datos y tus objetivos de análisis. Es importante consultar la documentación de estas bibliotecas y adaptar los pasos según tus necesidades específicas.
+
+riqueza <- estimate_richness(mi_phyloseq, measures = "Observed")
+```
+
+
+```{r}
+
+set.seed(123)
+taxa_names <- c("OTU1", "OTU2", "OTU3", "OTU4", "OTU5")
+sample_names <- c("Sample1", "Sample2", "Sample3", "Sample4")
+otu_data <- matrix(sample(1:100, 20, replace = TRUE), nrow = 5, dimnames = list(taxa_names, sample_names))
+
+install.packages("vegan")
+install.packages("permute")
+install.packages("lattice")
+install.packages("phyloseq")
+install.packages("here")
+install.packages("tidyr")
+install.packages("here")
+install.packages("tidyverse")
+install.packages("vegan")
+install.packages("reshape2")
+install.packages("readr")
+install.packages("dplyr")
+install.packages("Biostrings")
+install.packages("phylotools")
+install.packages("BiocManager")
+install.packages("paletteer")
+install.packages("tidyverse")
+install.packages("insect")
+install.packages("taxonomizr")
+install.packages("here")
+install.packages("microbiome")  
+install.packages("microbiome")
+install.packages("ape")
+
+```
+
+
+
+
+
+
+
+
+```{r}
+
+library(vegan)
+library(permute)
+library(lattice)
+library(phyloseq)
+library(here)
+library(tidyr)
+library(here)
+library(tidyverse)
+library(vegan)
+library(reshape2)
+library(readr)
+library(dplyr)
+library(Biostrings)
+library(phylotools)
+library(BiocManager)
+library(paletteer)
+library(tidyverse)
+library(insect)
+library(taxonomizr)
+library(here)
+library(microbiome)  
+library(microbiome)
+library(ape)
+library(agricolae)
+
+
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("phyloseq")
+
+install.packages("microbiome")
+
+
+
+#Phyloseq necesita varias cosas fundamentales: otu_table; taxa_mat
+#ASV_table para phyloseq
+
+ASV.table <- read.csv(here("Outputs/good_output/New_70_90/ASV_table_samples_metazoa_without_pos_host_modified.csv"))
+#ASV.table$nReads <- as.numeric(ASV.table$nReads)
+
+ASV <- ASV.table %>%
+  select(Sample, Hash, nReads) %>%
+  pivot_wider(names_from = Sample, values_from = nReads, values_fill = 0) %>% 
+  as.matrix() 
+
+rownames(ASV) <- ASV[, "Hash"]
+ASV = ASV[, -1]
+class(ASV) <- "integer"
+                              
+ASV <- otu_table(ASV, taxa_are_rows = TRUE)
+
+#TAXA_table para phyloseq
+
+TAXA <- ASV.table %>%
+  select(Hash,kingdom,phylum,class,order,family,genus,species) %>% 
+  unique() %>% 
+  as.matrix() 
+rownames(TAXA) <- TAXA[, "Hash"]
+TAXA = TAXA[, -1]
+
+#COMBINACION DE AMBAS
+
+ASV <- otu_table(ASV, taxa_are_rows = TRUE)
+TAXA <- tax_table(TAXA)
+physeq = phyloseq(ASV, TAXA)
+plot_bar(physeq, fill = "phylum")
+
+
+#SAMPLE DATA
+
+METADATA <- ASV.table %>% 
+  select(Sample,Tube,Station,Biol.rep,rep,V_o_P,Region) %>% 
+  unique
+rownames(METADATA) <- METADATA[, "Sample"]
+METADATA = METADATA[, -1] 
+
+sampledata = sample_data(data.frame(
+  Tube = METADATA$Tube,
+  Station = METADATA$Station,
+  Biol.rep = METADATA$Biol.rep,
+  rep = METADATA$rep,
+  V_o_P = METADATA$V_o_P,
+  Region = METADATA$Region,
+  row.names=sample_names(physeq),
+  stringsAsFactors=FALSE
+))
+
+#COMBINAR CON DATOS DE SAMPLESITE
+
+physeq = merge_phyloseq(physeq, sampledata)
+
+random_tree = rtree(ntaxa(physeq), rooted=TRUE, tip.label=taxa_names(physeq))
+
+physeq = merge_phyloseq(physeq, random_tree)
+
+```
+
+
+
+```{r}
+
+
+plot_tree(physeq, color="Region", label.tips="taxa_names", ladderize="left", plot.margin=0.3)
+plot_tree(physeq, color="Region", shape="V_o_P", label.tips="taxa_names", ladderize="right", plot.margin=0.3)
+plot_heatmap(physeq)
+plot_heatmap(physeq, taxa.label="phylum")
+
+
+alpha_diversity <- estimate_richness(physeq, measures = "Shannon")
+print(alpha_diversity)
+
+
+result <- merge(alpha_diversity, METADATA, by = 0)
+
+ggplot(result, aes(x = Region, y = Shannon)) + 
+  geom_boxplot()
+
+
+anova_result <- aov(Shannon ~ Region, result)
+summary(anova_result)
+
+tukey_result <- HSD.test(anova_result, "Region", group = TRUE)
+print(tukey_result)
+
+
+hist(alpha_diversity$Shannon)
+
+ggplot(alpha_diversity, aes(x = Site, y = alpha)) + 
+  geom_boxplot()
+
+
+
+beta_diversity <- phyloseq::distance(physeq, method = "jaccard")
+print(beta_diversity)
+beta_pca <- cmdscale(beta_diversity)
+plot(beta_pca, pch = 20)
+beta_pcoa <- ordinate(physeq, method = "PCoA", distance = "beta_diversity")
+plot_ordination(physeq, beta_pcoa, color = "Region") # Cambia "grupo_muestra" al nombre de tu variable de 
+
+
+alpha_df <- as.data.frame(alpha_diversity)
+
+# Crear un gráfico de barras de diversidad alfa
+ggplot(alpha_df, aes(x = rownames(alpha_df), y = Shannon)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  labs(title = "Diversidad Alfa (Índice de Shannon)",
+       x = "Muestras",
+       y = "Valor de Diversidad Alfa") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+physeq2 <- prune_species(speciesSums(physeq) > 0, physeq)
+
+plot_richness(physeq2)
+plot_richness(physeq, measures=c("Chao1", "Shannon"))
+plot_richness(physeq, x="Region", scales = "free_y", nrow = 1, measures=c("Chao1", "Shannon"))
+
+beta_pcoa <- ordinate(physeq, method = "PCoA", distance = "beta_diversity")
+plot_ordination(physeq, beta_pcoa, color = "Region") # Cambia "grupo_muestra" al nombre de tu variable de interés
+
+
+```
+
+
+
+
+```{r}
+
+#CARGAMOS ESTAS DOS FUNCIONES
+
+theme_set(theme_bw())
+pal = "Set1"
+scale_colour_discrete <-  function(palname=pal, ...){
+  scale_colour_brewer(palette=palname, ...)
+}
+scale_fill_discrete <-  function(palname=pal, ...){
+  scale_fill_brewer(palette=palname, ...)
+}
+
+GP <- prune_species(speciesSums(GlobalPatterns) > 0, GlobalPatterns)
+plot_richness(GP)
+
+
+```
+
+```{r}
+
+ASV2 <- ASV.table %>%
+  select(Sample, Hash, nReads) %>%
+  pivot_wider(names_from = Hash, values_from = nReads, values_fill = 0) %>% 
+  as.matrix() 
+
+rownames(ASV2) <- ASV2[, "Sample"]
+ASV2 = ASV2[, -1]
+class(ASV2) <- "integer"
+
+head(otu_table(physeq1)) %>%
+  kable(format = "html", col.names = colnames(otu_table(physeq1))) %>%
+  kable_styling() %>%
+  kableExtra::scroll_box(width = "100%", height = "350px")
+
+head(tax_table(physeq1)) %>%
+  kable(format = "html", col.names = colnames(tax_table(physeq1))) %>%
+  kable_styling() %>%
+  kableExtra::scroll_box(width = "100%", height = "320px")
+
+as(sample_data(physeq1), "data.frame") -> metad
+
+metad %>%
+  kable(format = "html", col.names = colnames(metad)) %>%
+  kable_styling() %>%
+  kableExtra::scroll_box(width = "100%", height = "400px")
+
+
+plot_tree(physeq1, method = "treeonly", ladderize = "left")
+
+summarize_phyloseq(physeq)
+
+
+
+df <- psmelt(physeq1)
+head(df) %>%
+  kable(format = "html", col.names = colnames(df)) %>%
+  kable_styling() %>%
+  kableExtra::scroll_box(width = "100%", height = "400px")
+
+
+res <- plot_frequencies(sample_data(physeq1), "Sample", "phylum")
+print(res$plot)
+
+
+
+message("Cantidad de muestras: ", nsamples(physeq1), "\n",
+        "Cantidad de ASVs: ", ntaxa(physeq), "\n",
+        "Cantidad de ASVs no presentes en las muestras: ", ntaxa(prune_taxa(taxa_sums(physeq) == 0, physeq)))
+
+
+
+library(kableExtra)
+```
+
+
+```{r}
+rarefied<-rarefy_even_depth(ps,min(sample_sums(ps)),rngseed=1)
+tse_rarefied <- makeTreeSummarizedExperimentFromPhyloseq(rarefied)
+# Uniformidad
+tse_rarefied <- estimateEvenness(tse_rarefied, 
+                        abund_values = "counts",
+                        index="simpson")
+
+plots <- lapply(c("simpson"),
+                plotColData,
+                object = tse_rarefied,
+                x = "Farmer",
+                colour_by = "Farmer")
+
+plots <- lapply(plots, "+", 
+                theme(axis.text.x = element_blank(),
+                      axis.title.x = element_blank(),
+                      axis.ticks.x = element_blank()))
+
+plots[[1]] + plot_layout(guides = "collect")
+
+
+alpha_pd <- estimate_pd(physeq1)
+
+```
+

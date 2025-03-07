@@ -1,0 +1,18 @@
+vsearch v2.21.1_linux_x86_64, 3.8GB RAM, 4 cores
+vsearch -uchime_denovo hash_key_for_vsearch.04.02.2024.fasta --nonchimeras vsearch_nonchimeras.fasta --sizein --chimeras vsearch_chimeras.fasta --uchimeout uchimeout --log logfile_uchime
+Started  Tue Feb  4 15:00:13 2025
+9181612 nt in 32228 seqs, min 220, max 340, avg 285
+
+    0.28  minh
+    8.00  xn
+    1.40  dn
+    1.00  xa
+    0.80  mindiv
+    0.55  id
+       2  maxp
+
+hash_key_for_vsearch.04.02.2024.fasta: 3512/32228 chimeras (10.9%)
+
+Finished Tue Feb  4 15:01:11 2025
+Elapsed time 00:58
+Max memory 53.7MB

@@ -1,0 +1,177 @@
+---
+title: "xx_Swarm_and_vsearch"
+author: "Robert Cassidy (Porcupine Run)"
+date: "2025-1-27"
+output: html_document
+---
+
+(1)**Cargamos los paquetes necesarios**
+
+```{r}
+install.packages("eDNAfuns")
+install.packages("here")
+install.packages("Biostrings")
+install.packages("phylotools")
+install.packages("BiocManager")
+install.packages("rlang")
+library(tidyverse)
+library(dplyr)
+library(eDNAfuns)
+library(here)
+library(Biostrings)
+library(phylotools)
+library(BiocManager)
+
+
+
+```
+
+(2)**Preparamos los datos para hacer swarm, tienen el mismo aspecto que cuando corremos vsearch: \>hash;size=xx**
+
+```{r}
+
+# 1.Cargamos la tabla de ASVs y el fasta
+
+#Porcupine: solo vamos a usar los ASVs filtrados por los que son de porcupine
+ASV_table <- readr::read_csv("run2/filtered_ASV_table.csv")
+hash.fasta <- readDNAStringSet("run2/Filtered_Hash_key.fasta")
+
+
+# 2.Derreplicamos los hash y lo resumimos por nReads para dejarlo con el formato de hash;size=xx y dejamos la columna de hash solo y la nueva par ahacer una tabla con valores nuevos y viejos y cambiar el nombre al fasta (hash.fasta)
+
+ASV_table_unique <- ASV_table %>%
+  group_by(Hash) %>%
+  summarize(total_reads = sum(nReads)) %>%
+  arrange(desc(total_reads)) %>%
+  tidyr::unite(new_name,c(1:2),sep = ";size=", remove=F) %>%
+  select(-total_reads) %>%
+  select(Hash, new_name) %>%
+  dplyr::rename(old_name = Hash)
+
+
+# 3.Renombramos
+
+rename.fasta(infile = "run2/Filtered_Hash_key.fasta",ref_table = ASV_table_unique,outfile = "run2/hash_key_for_swarm_04.02.2024.fasta")
+
+#"./swarm -z -w ~/Dropbox/Porcupain_project/run2/output_centro.fasta ~/Dropbox/Porcupain_project/run2/hash_key_for_swarm.fasta -o ~/Dropbox/Porcupain_project/run2/swarm_output.txt"
+
+
+
+
+```
+
+(3)**Despues de haber corrido swarm vamos a transformar los datos para vsearch, porque el output nos ha puesto un ";" al final**
+
+```{r}
+
+# 1.Cargamos el output de swarm (solo los centroides, donde ya esta hecha la suma con las secuencias satelite)
+
+swarm.fasta <- readDNAStringSet("C:\Users\Usuario\Dropbox\Porcupain_project\run2/output_centro.04.02.2024.fasta")
+
+old.names.fasta <- names(swarm.fasta)
+
+new.names.fasta <- old.names.fasta %>%
+  substr(., 1, nchar(old.names.fasta) - 1)
+
+names.for.vsearch <- data.frame(old_name = old.names.fasta, new_name = new.names.fasta)
+
+rename.fasta(infile = "C:\Users\Usuario\Dropbox\Porcupain_project\run2/output_centro.04.02.2024.fasta",ref_table = names.for.vsearch,outfile = "C:\Users\Usuario\Dropbox\Porcupain_project\run2/hash_key_for_vsearch.04.02.2024.fasta")
+
+#vsearch -uchime_denovo ~/Dropbox/Porcupain_project/run2/hash_key_for_vsearch.fasta --nonchimeras ~/Dropbox/Porcupain_project/run2/vsearch_nonchimeras.fasta --sizein --chimeras ~/Dropbox/Porcupain_project/run2/vsearch_chimeras.fasta --uchimeout ~/Dropbox/Porcupain_project/run2/uchimeout --log ~/Dropbox/Porcupain_project/run2/logfile_uchime
+
+```
+
+(4)**Vamos a crear una nueva tabla con las nuevas catalogaciones, cambiar los datos de los satelites por los hashes planetarios y eliminar las chimeras detectadas por vsearch**
+
+```{r}
+
+# (1.) Leemos el archivo de satelites (output.txt de swarm) y creeamos un archivo que sean nombres de los planetas (hash de verdad) y satelites (hashes con cambios raritos), para luego en el archivo de csv poder cambiar los datos de los satelites por los planetas
+
+satelites <- read.table("C:\Users\Usuario\Dropbox\Porcupain_project\run2/swarm_output04.02.2024.txt", sep=" ", fill=TRUE,header=FALSE) %>%
+  filter(!is.na(V2) & V2 != "") %>%
+  mutate_all(~gsub(";.*", "", .))
+
+transpuesto_satelites <- t(satelites)
+transpuesto_satelites <- data.frame(transpuesto_satelites)
+colnames(transpuesto_satelites) <- transpuesto_satelites[1, ]
+transpuesto_satelites <- transpuesto_satelites[-1, ]
+
+df_long <- transpuesto_satelites %>%
+  gather(key = "new_hash", value ="Hash") %>%
+  filter(!is.na(Hash) & Hash != "")
+
+ASV_table <- read_csv("C:\Users\Usuario\Dropbox\Porcupain_project\run2/filtered_ASV_table.csv")
+
+ASV_table_after_swarm <- full_join(ASV_table,df_long)
+ASV_table_after_swarm$final_hash <- ifelse(!is.na(ASV_table_after_swarm$new_hash), ASV_table_after_swarm$new_hash, ASV_table_after_swarm$Hash)
+
+summary_data <- aggregate(nReads ~ Sample + final_hash, data = ASV_table_after_swarm, FUN = sum)
+colnames(summary_data) [2] <- "Hash"
+
+#Queremos comprobar que aunque si ha cambiado el numero de hash no ha cambiado el numero total de nreads
+
+summarize(ASV_table,sum(nReads))
+distinct(ASV_table,Hash)
+summarize(summary_data,sum(nReads))
+distinct(summary_data,Hash)
+
+planestas.fasta <- readDNAStringSet("C:\Users\Usuario\Dropbox\Porcupain_project\run2/output_centro.04.02.2024.fasta")
+
+tibble(Hash=names(planestas.fasta)) %>% 
+  separate(Hash, into=c("Hash","nReads"),sep=";") %>% 
+  mutate(nReads = as.numeric(str_remove(nReads,"size="))) %>% 
+  summarize(sum(nReads))
+
+
+write.csv(summary_data,here("C:\Users\Usuario\Dropbox\Porcupain_project\run2/ASV_table_after_swarm04.02.2024.csv"), row.names = FALSE)
+
+
+# (2.) Vamos a eliminar las chimeras del archivo en el que hemos reemplazado satelites por planetas (summary_data). Las chimeras detectadas están en el archivo vsearch_chimeras.fasta
+
+chimeras <- readDNAStringSet("C:\Users\Usuario\Dropbox\Porcupain_project\run2//vsearch_chimeras.fasta")
+
+names.chimeras <- names(chimeras)
+names.chimeras <- data.frame(names.chimeras) %>%
+  mutate_all(~gsub(";.*", "", .))
+colnames(names.chimeras) [1] <- "Hash"
+
+ASV_table_after_vsearch <- anti_join(summary_data,names.chimeras)
+write.csv(ASV_table_after_vsearch,"C:\Users\Usuario\Dropbox\Porcupain_project\run2/ASV_table_after_vsearch.04.02.2024.csv", row.names = FALSE)
+
+#Lecturas perdidas por eliminacion de chimeras 
+inner_join(summary_data,names.chimeras)%>% 
+  summarize(sum(nReads)) #33311	
+
+
+```
+
+(4)**Vamos a generar ahora un archivo que sea un fasta con los hashes que mantenemos**
+
+```{r}
+
+all.hashes <- readDNAStringSet("C:\Users\Usuario\Dropbox\Porcupain_project\run2/Filtered_Hash_key.fasta")
+
+hashes.after.clean <- read.csv("C:\Users\Usuario\Dropbox\Porcupain_project\run2/ASV_table_after_vsearch.04.02.2024.csv")
+hashes.after.clean <- unique(hashes.after.clean$Hash)
+
+cleaned.hashes <- all.hashes[hashes.after.clean]
+
+writeXStringSet(cleaned.hashes, file = "~/Dropbox/Porcupain_project/run2/hashes_after_vsearch.04.02.2024.fasta", format = "fasta")
+
+```
+
+(5) **Hacer el fasta pero en csv a partir del archivo que nos ha generado la pipeline (hash_key_220.csv)**
+
+```{r}
+
+all.hashes <- read.csv(here("C:\Users\Usuario\Dropbox\Porcupain_project\run2/filtered_hash_key.csv"))
+
+final.hashes <- read.csv(here("C:\Users\Usuario\Dropbox\Porcupain_project\run2/ASV_table_after_vsearch.04.02.2024.csv"))
+final.hashes <- unique(final.hashes$Hash)
+final.hashes <- data.frame(final.hashes)
+colnames(final.hashes) [1] <- "Hash"
+
+hash.key.after.vsearch <- semi_join(all.hashes,final.hashes)
+write.csv(hash.key.after.vsearch, here("C:\Users\Usuario\Dropbox\Porcupain_project\run2/hash_key_after_vsearch.04.02.2024.csv"), row.names = F)
+
+```
